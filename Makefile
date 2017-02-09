@@ -1,9 +1,9 @@
-EXTENSION = brian
+EXTENSION = micromanage
 
-MODULE_big = brian
-OBJS = brian.o queries.pb-c.o
+MODULE_big = micromanage
+OBJS = micromanage.o queries.pb-c.o
 
-DATA = brian--0.0.1.sql
+DATA = micromanage--0.0.1.sql
 
 ifndef PG_CONFIG
 PG_CONFIG = pg_config
@@ -17,4 +17,4 @@ include $(PGXS)
 queries.pb-h.h queries.pb-c.c: queries.proto
 	protoc-c --c_out=. queries.proto
 
-brian.o: queries.pb-h.h
+micromanage.o: queries.pb-h.h
