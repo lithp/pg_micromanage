@@ -29,11 +29,11 @@ PlannedStmt * skip_planner(Query *, int, ParamListInfo);
 
 static PlannedStmt * planQuery(char *queryString);
 static PlannedStmt * planForFunc(FuncExpr *funcexpr);
-static PlannedStmt * scanTable(char *tableName);
+static SelectQuery * decodeQuery(char *string);
+
+static PlannedStmt * scanTable(SelectQuery *query);
 static SeqScan * createSeqScan(void);
 static RangeTblEntry * createRangeTable(char *tableName);
-
-static SelectQuery * decodeQuery(char *string);
 
 typedef struct
 {
@@ -123,9 +123,7 @@ planForFunc(FuncExpr *funcexpr)
 	protobufString = TextDatumGetCString(arg->constvalue);
 	protobuf = decodeQuery(protobufString);
 
-	return scanTable(protobuf->table);
-
-	//return planQuery(protobuf);
+	return scanTable(protobuf);
 }
 
 static
@@ -159,42 +157,59 @@ decodeQuery(char *string)
 	return protobuf;
 }
 
-/* Attempt to make a plan, completely from scratch, and see if it crashes */
+
 static
 PlannedStmt *
-scanTable(char *tableName)
+scanTable(SelectQuery *query)
 {
-	PlannedStmt *result = makeNode(PlannedStmt);
+	Plan *scan = (Plan *) createSeqScan();
+	List *rtables = NULL;
 
-	result->commandType = CMD_SELECT; /* only support SELECT for now */
-	result->queryId = 0; /* TODO: does this need a real value? */
-	result->hasReturning = false;
-	result->hasModifyingCTE = false;
-	result->canSetTag = true;
-	result->transientPlan = false;
-	result->dependsOnRole = false;
-	result->parallelModeNeeded = false;
+	if (query->n_rtable == 0)
+	{
+		ereport(ERROR, (errmsg("must include at least one range table")));
+	}
 
-	result->planTree = (Plan *) createSeqScan();
-	result->rtable = list_make1(createRangeTable(tableName));
+	for (int i = 0; i < query->n_rtable; i++)
+	{
+		RangeTable *rtable = query->rtable[i];
+		RangeTblEntry *entry = createRangeTable(rtable->name);
+		rtables = lappend(rtables, entry);
+	}
 
-	result->resultRelations = NULL;
-	result->utilityStmt = NULL;
-	result->subplans = NULL;
-	result->rewindPlanIDs = NULL;
-	result->rowMarks = NULL;
+	{
+		PlannedStmt *result = makeNode(PlannedStmt);
 
-	/* relationOids is used for plan caching, not by the executor. */
-	result->relationOids = NULL;
+		result->commandType = CMD_SELECT; /* only support SELECT for now */
+		result->queryId = 0; /* TODO: does this need a real value? */
+		result->hasReturning = false;
+		result->hasModifyingCTE = false;
+		result->canSetTag = true;
+		result->transientPlan = false;
+		result->dependsOnRole = false;
+		result->parallelModeNeeded = false;
 
-	/* also used for caching, this plan will never be cached */
-	result->invalItems = NULL;
+		result->planTree = scan;
+		result->rtable = rtables;
 
-	/* This is described well in primnodes.h:200 */
-	/* For the forseeable future we will have none of these */
-	result->nParamExec = 0;
+		result->resultRelations = NULL;
+		result->utilityStmt = NULL;
+		result->subplans = NULL;
+		result->rewindPlanIDs = NULL;
+		result->rowMarks = NULL;
 
-	return result;
+		/* relationOids is used for plan caching, not by the executor. */
+		result->relationOids = NULL;
+
+		/* also used for caching, this plan will never be cached */
+		result->invalItems = NULL;
+
+		/* This is described well in primnodes.h:200 */
+		/* For the forseeable future we will have none of these */
+		result->nParamExec = 0;
+
+		return result;
+	}
 }
 
 static
@@ -226,6 +241,11 @@ createRangeTable(char *tableName)
 {
 	RangeTblEntry *result = makeNode(RangeTblEntry);
 	Oid relationId = get_relname_relid(tableName, PG_PUBLIC_NAMESPACE);
+
+	if (relationId == InvalidOid)
+	{
+		ereport(ERROR, (errmsg("table %s does not exist", tableName)));
+	}
 
 	result->rtekind = RTE_RELATION;
 	result->relid = relationId;

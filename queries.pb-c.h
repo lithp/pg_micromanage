@@ -16,6 +16,8 @@ PROTOBUF_C__BEGIN_DECLS
 
 
 typedef struct _SelectQuery SelectQuery;
+typedef struct _SequenceScan SequenceScan;
+typedef struct _RangeTable RangeTable;
 
 
 /* --- enums --- */
@@ -26,10 +28,32 @@ typedef struct _SelectQuery SelectQuery;
 struct  _SelectQuery
 {
   ProtobufCMessage base;
-  char *table;
+  SequenceScan *sscan;
+  size_t n_rtable;
+  RangeTable **rtable;
 };
 #define SELECT_QUERY__INIT \
  { PROTOBUF_C_MESSAGE_INIT (&select_query__descriptor) \
+    , NULL, 0,NULL }
+
+
+struct  _SequenceScan
+{
+  ProtobufCMessage base;
+  int32_t table;
+};
+#define SEQUENCE_SCAN__INIT \
+ { PROTOBUF_C_MESSAGE_INIT (&sequence_scan__descriptor) \
+    , 0 }
+
+
+struct  _RangeTable
+{
+  ProtobufCMessage base;
+  char *name;
+};
+#define RANGE_TABLE__INIT \
+ { PROTOBUF_C_MESSAGE_INIT (&range_table__descriptor) \
     , NULL }
 
 
@@ -52,10 +76,54 @@ SelectQuery *
 void   select_query__free_unpacked
                      (SelectQuery *message,
                       ProtobufCAllocator *allocator);
+/* SequenceScan methods */
+void   sequence_scan__init
+                     (SequenceScan         *message);
+size_t sequence_scan__get_packed_size
+                     (const SequenceScan   *message);
+size_t sequence_scan__pack
+                     (const SequenceScan   *message,
+                      uint8_t             *out);
+size_t sequence_scan__pack_to_buffer
+                     (const SequenceScan   *message,
+                      ProtobufCBuffer     *buffer);
+SequenceScan *
+       sequence_scan__unpack
+                     (ProtobufCAllocator  *allocator,
+                      size_t               len,
+                      const uint8_t       *data);
+void   sequence_scan__free_unpacked
+                     (SequenceScan *message,
+                      ProtobufCAllocator *allocator);
+/* RangeTable methods */
+void   range_table__init
+                     (RangeTable         *message);
+size_t range_table__get_packed_size
+                     (const RangeTable   *message);
+size_t range_table__pack
+                     (const RangeTable   *message,
+                      uint8_t             *out);
+size_t range_table__pack_to_buffer
+                     (const RangeTable   *message,
+                      ProtobufCBuffer     *buffer);
+RangeTable *
+       range_table__unpack
+                     (ProtobufCAllocator  *allocator,
+                      size_t               len,
+                      const uint8_t       *data);
+void   range_table__free_unpacked
+                     (RangeTable *message,
+                      ProtobufCAllocator *allocator);
 /* --- per-message closures --- */
 
 typedef void (*SelectQuery_Closure)
                  (const SelectQuery *message,
+                  void *closure_data);
+typedef void (*SequenceScan_Closure)
+                 (const SequenceScan *message,
+                  void *closure_data);
+typedef void (*RangeTable_Closure)
+                 (const RangeTable *message,
                   void *closure_data);
 
 /* --- services --- */
@@ -64,6 +132,8 @@ typedef void (*SelectQuery_Closure)
 /* --- descriptors --- */
 
 extern const ProtobufCMessageDescriptor select_query__descriptor;
+extern const ProtobufCMessageDescriptor sequence_scan__descriptor;
+extern const ProtobufCMessageDescriptor range_table__descriptor;
 
 PROTOBUF_C__END_DECLS
 
