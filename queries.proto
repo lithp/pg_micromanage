@@ -1,0 +1,3 @@
+message SelectQuery {
+  required string table = 1;
+}
