@@ -13,3 +13,8 @@ SHLIB_LINK += -lprotobuf-c
 
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
+
+queries.pb-h.h queries.pb-c.c: queries.proto
+	protoc-c --c_out=. queries.proto
+
+brian.o: queries.pb-h.h
