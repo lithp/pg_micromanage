@@ -2,11 +2,13 @@
 #include "postgres.h"
 
 #include "access/htup_details.h"
+#include "catalog/pg_type.h"
 #include "executor/tstoreReceiver.h"
 #include "funcapi.h"
 #include "miscadmin.h"
 #include "nodes/print.h"
 #include "optimizer/planner.h"
+#include "parser/parse_func.h"
 #include "tcop/dest.h"
 #include "tcop/tcopprot.h"
 #include "tcop/pquery.h"
@@ -18,13 +20,95 @@
 PG_MODULE_MAGIC;
 #endif
 
-static PlannedStmt* planQuery(char *queryString);
+void _PG_init(void);
+PlannedStmt * skip_planner(Query *, int, ParamListInfo);
+
+static PlannedStmt * planQuery(char *queryString);
+static PlannedStmt * planForFunc(FuncExpr *funcexpr);
 
 typedef struct
 {
 	Portal portal;
 	Tuplestorestate *tstore;
 } run_select_context;
+
+void
+_PG_init(void)
+{
+	if (planner_hook != NULL)
+	{
+		ereport(ERROR, (errmsg("a planner hook already exists.")));
+	}
+
+	planner_hook = skip_planner;
+}
+
+PlannedStmt *
+skip_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
+{
+	CmdType commandType = parse->commandType;
+	RangeTblEntry *rangeTable;
+	RangeTblFunction *rangeTableFunction;
+	Node *funcexpr;
+	Oid funcid;
+	Oid runSelectFuncId;
+	Oid textOid = TEXTOID;
+	Value *string;
+
+	/* Only SELECT * FROM run_select('some query'); is supported */
+
+	if (commandType != CMD_SELECT)
+		goto standard;
+
+	if (list_length(parse->rtable) != 1)
+		goto standard;
+
+	rangeTable = linitial(parse->rtable);
+
+	if (rangeTable->rtekind != RTE_FUNCTION
+		|| (rangeTable->functions == NULL)
+		|| list_length(rangeTable->functions) != 1)
+		goto standard;
+
+	rangeTableFunction = linitial(rangeTable->functions);
+	funcexpr = rangeTableFunction->funcexpr;
+
+	if (!IsA(funcexpr, FuncExpr))
+		goto standard;
+
+	string = makeString(pstrdup("run_select"));
+	funcid = ((FuncExpr *)funcexpr)->funcid;
+	runSelectFuncId = LookupFuncName(list_make1(string), 1, &textOid, false);
+
+	if (funcid != runSelectFuncId)
+		goto standard;
+
+	/* TODO: This doesn't happen the first time.. but the second time it does? */
+	ereport(WARNING, (errmsg("replacing plan")));
+
+	return planForFunc((FuncExpr *)funcexpr);
+
+standard:
+	return standard_planner(parse, cursorOptions, boundParams);
+}
+
+PlannedStmt *
+planForFunc(FuncExpr *funcexpr)
+{
+	Const *arg;
+	char *query;
+
+	Assert(IsA(funcexpr, FuncExpr));
+	Assert(list_length(funcexpr->args) == 1);
+
+	arg = linitial(funcexpr->args);
+
+	Assert(IsA(arg, Const));
+	Assert(arg->consttype == TEXTOID);
+
+	query = TextDatumGetCString(arg->constvalue);
+	return planQuery(query);
+}
 
 /* makes sure everything is building correctly */
 PG_FUNCTION_INFO_V1(return_one);
@@ -183,10 +267,21 @@ planQuery(char *queryString)
 }
 
 
-PG_FUNCTION_INFO_V1(run_select);
-Datum run_select(PG_FUNCTION_ARGS)
+/*
+ * Improvements:
+ * - This does not check that the TupleDesc of its return type matches that of the query
+ * - Using a tuplestore to store a single tuple feels silly, make your own receiver?
+ *
+ * Tests:
+ * - Does this work inside a transaction?
+ * - Does this work inside a larger query?
+ *
+ * Resources:
+ * - pg_cursor does something crazy with tuplestore, maybe duplicate that?
+ */
+PG_FUNCTION_INFO_V1(run_select_old);
+Datum run_select_old(PG_FUNCTION_ARGS)
 {
-	/* pg_cursor does something crazy with tuplestores, maybe duplicate it? */
 	FuncCallContext *funcctx;
 	run_select_context *ctx;
 	Portal portal;
@@ -212,7 +307,6 @@ Datum run_select(PG_FUNCTION_ARGS)
 
 	if (SRF_IS_FIRSTCALL())
 	{
-		/* TODO: Check that the dest TupleDesc matches this query */
 		MemoryContext oldcontext;
 		PlannedStmt *plan = planQuery(queryString);
 
@@ -251,12 +345,18 @@ Datum run_select(PG_FUNCTION_ARGS)
 		SRF_RETURN_DONE(funcctx);
 	}
 
-	slot = MakeSingleTupleTableSlot(tupleDesc); /* TODO: check that desc matches */
-	tuplestore_rescan(tstore); /* put the read pointer at the beginning */
+	slot = MakeSingleTupleTableSlot(tupleDesc);
 	tuplestore_gettupleslot(tstore, true, true, slot); /* makes a copy for us */
 	result = ExecFetchSlotTupleDatum(slot); /* makes another copy for us */
 
 	(*receiver->rDestroy) (receiver);
 
 	SRF_RETURN_NEXT(funcctx, result);
+}
+
+
+PG_FUNCTION_INFO_V1(run_select);
+Datum run_select(PG_FUNCTION_ARGS)
+{
+	ereport(ERROR, (errmsg("must be run like: SELECT * FROM run_select() in a top level")));
 }
