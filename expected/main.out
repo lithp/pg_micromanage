@@ -4,11 +4,13 @@ SELECT * FROM run_select(:'buf');
 ERROR:  table a does not exist
 CREATE TABLE a (a int);
 INSERT INTO a VALUES (1);
+INSERT INTO a VALUES (10);
 SELECT * FROM run_select(:'buf');
- a 
----
- 1
-(1 row)
+ a  
+----
+  1
+ 10
+(2 rows)
 
 \set buf `cat example-messages/select-d-from-a.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
 SELECT * FROM run_select(:'buf');
@@ -19,15 +21,17 @@ WARNING:  cant select from table 2, using table 1 instead
 ERROR:  could not find column d of table 1
 \set buf `cat example-messages/select-const-from-a.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
 SELECT * FROM run_select(:'buf');
- a | a  
----+----
- 1 | 10
-(1 row)
+ a  | a  
+----+----
+  1 | 10
+ 10 | 10
+(2 rows)
 
 \set buf `cat example-messages/select-a-plus-10.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
 SELECT * FROM run_select(:'buf');
  a  
 ----
  11
-(1 row)
+ 20
+(2 rows)
 

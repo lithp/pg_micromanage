@@ -5,6 +5,7 @@ SELECT * FROM run_select(:'buf');
 
 CREATE TABLE a (a int);
 INSERT INTO a VALUES (1);
+INSERT INTO a VALUES (10);
 
 SELECT * FROM run_select(:'buf');
 
