@@ -26,9 +26,8 @@ message Expression {
 
   message Constant {
     oneof type {
-      string str = 1;
-      int32 int = 2;
-      uint32 uint = 3;
+      uint32 uint = 1;
+      bool bool = 2;
     }
   }
 

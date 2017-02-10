@@ -417,6 +417,8 @@ createConst(Expression__Constant *constant)
 	Const *result = makeNode(Const);
 
 	switch (constant->type_case){
+		case EXPRESSION__CONSTANT__TYPE_BOOL:
+			return (Const *) makeBoolConst(constant->bool_, false);
 		case EXPRESSION__CONSTANT__TYPE_UINT:
 			result->consttype = INT4OID;
 			result->consttypmod = -1;
