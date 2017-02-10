@@ -346,6 +346,7 @@ createVar(Expression__ColumnRef *ref, uint32_t visibleTable, List *rtables)
 	{
 		ereport(WARNING, (errmsg("cant select from table %d, using table %d instead",
 								 ref->table, visibleTable)));
+		ref->table = visibleTable;
 	}
 
 	relid = rangeTableId(rtables, ref->table);

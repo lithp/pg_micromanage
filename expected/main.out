@@ -2,3 +2,18 @@ CREATE EXTENSION micromanage;
 \set buf `cat example-messages/select-a-from-a.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
 SELECT * FROM run_select(:'buf');
 ERROR:  table a does not exist
+CREATE TABLE a (a int);
+INSERT INTO a VALUES (1);
+SELECT * FROM run_select(:'buf');
+ a 
+---
+ 1
+(1 row)
+
+\set buf `cat example-messages/select-d-from-a.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+SELECT * FROM run_select(:'buf');
+ERROR:  could not find column d of table 1
+\set buf `cat example-messages/select-d-from-bad-index.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+SELECT * FROM run_select(:'buf');
+WARNING:  cant select from table 2, using table 1 instead
+ERROR:  could not find column d of table 1
