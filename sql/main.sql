@@ -29,3 +29,7 @@ SELECT * FROM run_select(:'buf');
 -- SELECT a, a > 5 FROM a;
 \set buf `cat example-messages/select-a-gt-5.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
 SELECT * FROM run_select(:'buf');
+
+-- SELECT a FROM a WHERE a = 10;
+\set buf `cat example-messages/select-where-a-eq.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+SELECT * FROM run_select(:'buf');

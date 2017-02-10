@@ -1,4 +1,5 @@
 CREATE EXTENSION micromanage;
+-- SELECT a FROM a;
 \set buf `cat example-messages/select-a-from-a.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
 SELECT * FROM run_select(:'buf');
 ERROR:  table a does not exist
@@ -12,13 +13,16 @@ SELECT * FROM run_select(:'buf');
  10
 (2 rows)
 
+-- SELECT d FROM a;
 \set buf `cat example-messages/select-d-from-a.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
 SELECT * FROM run_select(:'buf');
 ERROR:  could not find column d of table 1
+-- this is not expressable in sql, it should definitely fail!
 \set buf `cat example-messages/select-d-from-bad-index.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
 SELECT * FROM run_select(:'buf');
 WARNING:  cant select from table 2, using table 1 instead
 ERROR:  could not find column d of table 1
+-- SELECT a, 10 FROM a;
 \set buf `cat example-messages/select-const-from-a.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
 SELECT * FROM run_select(:'buf');
  a  | a  
@@ -27,6 +31,7 @@ SELECT * FROM run_select(:'buf');
  10 | 10
 (2 rows)
 
+-- SELECT a + 10 FROM a;
 \set buf `cat example-messages/select-a-plus-10.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
 SELECT * FROM run_select(:'buf');
  a  
@@ -35,7 +40,7 @@ SELECT * FROM run_select(:'buf');
  20
 (2 rows)
 
--- is a greater than 5?
+-- SELECT a, a > 5 FROM a;
 \set buf `cat example-messages/select-a-gt-5.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
 SELECT * FROM run_select(:'buf');
  a  | a 
@@ -43,4 +48,12 @@ SELECT * FROM run_select(:'buf');
   1 | f
  10 | t
 (2 rows)
+
+-- SELECT a FROM a WHERE a = 10;
+\set buf `cat example-messages/select-where-a-eq.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+SELECT * FROM run_select(:'buf');
+ a  
+----
+ 10
+(1 row)
 

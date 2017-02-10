@@ -227,6 +227,7 @@ createSeqScan(SequenceScan *scan, List *rtables)
 	SeqScan *node = makeNode(SeqScan);
 	Plan *plan = &node->plan;
 	List *targetList = NULL;
+	Expr *qualExpr;
 
 	if (scan->table == 0)
 	{
@@ -254,11 +255,13 @@ createSeqScan(SequenceScan *scan, List *rtables)
 		TargetEntry *entry = makeTargetEntry(expr, attrno + 1, "a", false);
 		targetList = lappend(targetList, entry);
 	}
-
 	plan->targetlist = targetList;
-	plan->qual = NULL; // Nothing for now, this is where WHERE clauses will go
-	plan->lefttree = NULL;
-	plan->righttree = NULL;
+
+	if (scan->qual != NULL)
+	{
+		qualExpr = createExpression(scan->qual, scan->table, rtables);
+		plan->qual = list_make1(qualExpr);
+	}
 
 	return node;
 }
