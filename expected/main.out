@@ -35,3 +35,12 @@ SELECT * FROM run_select(:'buf');
  20
 (2 rows)
 
+-- is a greater than 5?
+\set buf `cat example-messages/select-a-gt-5.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+SELECT * FROM run_select(:'buf');
+ a  | a 
+----+---
+  1 | f
+ 10 | t
+(2 rows)
+
