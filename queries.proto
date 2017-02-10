@@ -30,7 +30,9 @@ message Expression {
     optional uint32 uint = 3;
   }
 
-  optional ColumnRef var = 1;
-  optional Operation op = 2;
-  optional Constant const = 3;
+  oneof expr {
+    ColumnRef var = 1;
+    Operation op = 2;
+    Constant const = 3;
+  }
 }

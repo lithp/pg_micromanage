@@ -251,7 +251,7 @@ createSeqScan(SequenceScan *scan, List *rtables)
 		Expr *expr;
 		TargetEntry *entry;
 
-		if (expression->var != NULL)
+		if (expression->expr_case == EXPRESSION__EXPR_VAR)
 		{
 			expr = (Expr *) createVar(expression->var, scan->table, rtables);
 		} else {
