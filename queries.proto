@@ -25,9 +25,11 @@ message Expression {
   }
 
   message Constant {
-    optional string str = 1;
-    optional int32 int = 2;
-    optional uint32 uint = 3;
+    oneof type {
+      string str = 1;
+      int32 int = 2;
+      uint32 uint = 3;
+    }
   }
 
   oneof expr {

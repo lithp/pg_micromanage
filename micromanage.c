@@ -43,6 +43,7 @@ static RangeTblEntry * createRangeTable(char *tableName);
 static OpExpr * createOpExpr(void);
 static Var * createVar(Expression__ColumnRef *ref, uint32_t visibleTable, List *rtables);
 static Oid rangeTableId(List *rtables, Index index);
+static Const * createConst(Expression__Constant *constant);
 
 void
 _PG_init(void)
@@ -249,11 +250,16 @@ createSeqScan(SequenceScan *scan, List *rtables)
 		Expr *expr;
 		TargetEntry *entry;
 
-		if (expression->expr_case == EXPRESSION__EXPR_VAR)
+		switch (expression->expr_case)
 		{
-			expr = (Expr *) createVar(expression->var, scan->table, rtables);
-		} else {
-			ereport(ERROR, (errmsg("only var targets are supported")));
+			case EXPRESSION__EXPR_VAR:
+				expr = (Expr *) createVar(expression->var, scan->table, rtables);
+				break;
+			case EXPRESSION__EXPR_CONST:
+				expr = (Expr *) createConst(expression->const_);
+				break;
+			default:
+				ereport(ERROR, (errmsg("only var targets are supported")));
 		}
 
 		entry = makeTargetEntry(expr, attrno + 1, "a", false);
@@ -372,6 +378,31 @@ rangeTableId(List *rtables, Index index)
 	RangeTblEntry *rangeTable = (RangeTblEntry *) list_nth(rtables, index - 1);
 	Assert(IsA(rangeTable, RangeTblEntry));
 	return rangeTable->relid;
+}
+
+static
+Const *
+createConst(Expression__Constant *constant)
+{
+	Const *result = makeNode(Const);
+
+	switch (constant->type_case){
+		case EXPRESSION__CONSTANT__TYPE_UINT:
+			result->consttype = INT4OID;
+			result->consttypmod = -1;
+			result->constcollid = InvalidOid;
+			result->constlen = sizeof(uint32_t);
+			result->constvalue = UInt32GetDatum(constant->uint);
+			result->constisnull = false;
+			result->constbyval = true;
+			break;
+		default:
+			ereport(ERROR, (errmsg("constants other than uint aren't supported")));
+	}
+
+	result->location = -1; /* "unknown", where in the query string it was found */
+
+	return result;
 }
 
 /* accepts a query, plans it, then dumps the result */

@@ -17,3 +17,10 @@ ERROR:  could not find column d of table 1
 SELECT * FROM run_select(:'buf');
 WARNING:  cant select from table 2, using table 1 instead
 ERROR:  could not find column d of table 1
+\set buf `cat example-messages/select-const-from-a.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+SELECT * FROM run_select(:'buf');
+ a | a  
+---+----
+ 1 | 10
+(1 row)
+
