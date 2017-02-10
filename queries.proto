@@ -6,7 +6,7 @@ message SelectQuery {
 message SequenceScan {
   required uint32 table = 1;       // The index of the RangeTable
   repeated Expression target = 2;  // projection
-  required Expression qual = 3;    // selection
+  optional Expression qual = 3;    // selection
 }
 
 message RangeTable {

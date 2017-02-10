@@ -55,6 +55,8 @@ _PG_init(void)
 	planner_hook = skip_planner;
 }
 
+/* TODO: This doesn't happen the first time.. but the second time it does? */
+/* Maybe we need to be added to shared_preload_libraries? */
 PlannedStmt *
 skip_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 {
@@ -95,10 +97,6 @@ skip_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	funcid = ((FuncExpr *)funcexpr)->funcid;
 	if (funcid != runSelectFuncId)
 		goto use_standard_planner;
-
-	/* TODO: This doesn't happen the first time.. but the second time it does? */
-	/* Maybe we need to be added to shared_preload_libraries? */
-	ereport(WARNING, (errmsg("replacing plan")));
 
 	return planForFunc((FuncExpr *)funcexpr);
 
