@@ -18,6 +18,10 @@ PROTOBUF_C__BEGIN_DECLS
 typedef struct _SelectQuery SelectQuery;
 typedef struct _SequenceScan SequenceScan;
 typedef struct _RangeTable RangeTable;
+typedef struct _Expression Expression;
+typedef struct _Expression__ColumnRef Expression__ColumnRef;
+typedef struct _Expression__Operation Expression__Operation;
+typedef struct _Expression__Constant Expression__Constant;
 
 
 /* --- enums --- */
@@ -40,11 +44,23 @@ struct  _SelectQuery
 struct  _SequenceScan
 {
   ProtobufCMessage base;
-  int32_t table;
+  /*
+   * The index of the RangeTable
+   */
+  uint32_t table;
+  /*
+   * projection
+   */
+  size_t n_target;
+  Expression **target;
+  /*
+   * selection
+   */
+  Expression *qual;
 };
 #define SEQUENCE_SCAN__INIT \
  { PROTOBUF_C_MESSAGE_INIT (&sequence_scan__descriptor) \
-    , 0 }
+    , 0, 0,NULL, NULL }
 
 
 struct  _RangeTable
@@ -55,6 +71,61 @@ struct  _RangeTable
 #define RANGE_TABLE__INIT \
  { PROTOBUF_C_MESSAGE_INIT (&range_table__descriptor) \
     , NULL }
+
+
+struct  _Expression__ColumnRef
+{
+  ProtobufCMessage base;
+  /*
+   * The index of the RangeTable
+   */
+  uint32_t table;
+  /*
+   * The name of the attribute
+   */
+  char *column;
+};
+#define EXPRESSION__COLUMN_REF__INIT \
+ { PROTOBUF_C_MESSAGE_INIT (&expression__column_ref__descriptor) \
+    , 0, NULL }
+
+
+struct  _Expression__Operation
+{
+  ProtobufCMessage base;
+  char *name;
+  size_t n_arg;
+  Expression **arg;
+};
+#define EXPRESSION__OPERATION__INIT \
+ { PROTOBUF_C_MESSAGE_INIT (&expression__operation__descriptor) \
+    , NULL, 0,NULL }
+
+
+struct  _Expression__Constant
+{
+  ProtobufCMessage base;
+  char *str;
+  protobuf_c_boolean has_int_;
+  int32_t int_;
+  protobuf_c_boolean has_uint;
+  uint32_t uint;
+};
+#define EXPRESSION__CONSTANT__INIT \
+ { PROTOBUF_C_MESSAGE_INIT (&expression__constant__descriptor) \
+    , NULL, 0,0, 0,0 }
+
+
+struct  _Expression
+{
+  ProtobufCMessage base;
+  Expression__ColumnRef *var;
+  Expression__Operation *op;
+  Expression__Constant *const_;
+};
+#define EXPRESSION__INIT \
+ { PROTOBUF_C_MESSAGE_INIT (&expression__descriptor) \
+    , NULL, NULL, NULL }
 
 
 /* SelectQuery methods */
@@ -114,6 +185,34 @@ RangeTable *
 void   range_table__free_unpacked
                      (RangeTable *message,
                       ProtobufCAllocator *allocator);
+/* Expression__ColumnRef methods */
+void   expression__column_ref__init
+                     (Expression__ColumnRef         *message);
+/* Expression__Operation methods */
+void   expression__operation__init
+                     (Expression__Operation         *message);
+/* Expression__Constant methods */
+void   expression__constant__init
+                     (Expression__Constant         *message);
+/* Expression methods */
+void   expression__init
+                     (Expression         *message);
+size_t expression__get_packed_size
+                     (const Expression   *message);
+size_t expression__pack
+                     (const Expression   *message,
+                      uint8_t             *out);
+size_t expression__pack_to_buffer
+                     (const Expression   *message,
+                      ProtobufCBuffer     *buffer);
+Expression *
+       expression__unpack
+                     (ProtobufCAllocator  *allocator,
+                      size_t               len,
+                      const uint8_t       *data);
+void   expression__free_unpacked
+                     (Expression *message,
+                      ProtobufCAllocator *allocator);
 /* --- per-message closures --- */
 
 typedef void (*SelectQuery_Closure)
@@ -125,6 +224,18 @@ typedef void (*SequenceScan_Closure)
 typedef void (*RangeTable_Closure)
                  (const RangeTable *message,
                   void *closure_data);
+typedef void (*Expression__ColumnRef_Closure)
+                 (const Expression__ColumnRef *message,
+                  void *closure_data);
+typedef void (*Expression__Operation_Closure)
+                 (const Expression__Operation *message,
+                  void *closure_data);
+typedef void (*Expression__Constant_Closure)
+                 (const Expression__Constant *message,
+                  void *closure_data);
+typedef void (*Expression_Closure)
+                 (const Expression *message,
+                  void *closure_data);
 
 /* --- services --- */
 
@@ -134,6 +245,10 @@ typedef void (*RangeTable_Closure)
 extern const ProtobufCMessageDescriptor select_query__descriptor;
 extern const ProtobufCMessageDescriptor sequence_scan__descriptor;
 extern const ProtobufCMessageDescriptor range_table__descriptor;
+extern const ProtobufCMessageDescriptor expression__descriptor;
+extern const ProtobufCMessageDescriptor expression__column_ref__descriptor;
+extern const ProtobufCMessageDescriptor expression__operation__descriptor;
+extern const ProtobufCMessageDescriptor expression__constant__descriptor;
 
 PROTOBUF_C__END_DECLS
 

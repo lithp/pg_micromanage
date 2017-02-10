@@ -1,3 +1,9 @@
+/*
+ * Known limitations:
+ * - does not populate any cost info
+ * - likely does not respect any security settings
+ * - who knows whether it will work inside a transaction
+ */
 #include "postgres.h"
 
 #include "access/htup_details.h"
@@ -31,8 +37,12 @@ static PlannedStmt * planForFunc(FuncExpr *funcexpr);
 static SelectQuery * decodeQuery(char *string);
 
 static PlannedStmt * scanTable(SelectQuery *query);
-static SeqScan * createSeqScan(void);
+static SeqScan * createSeqScan(SequenceScan *scan, List *rtables);
 static RangeTblEntry * createRangeTable(char *tableName);
+
+static OpExpr * createOpExpr(void);
+static Var * createVar(Expression__ColumnRef *ref, uint32_t visibleTable, List *rtables);
+static Oid rangeTableId(List *rtables, Index index);
 
 void
 _PG_init(void)
@@ -154,7 +164,7 @@ static
 PlannedStmt *
 scanTable(SelectQuery *query)
 {
-	Plan *scan = (Plan *) createSeqScan();
+	Plan *scan;
 	List *rtables = NULL;
 
 	if (query->n_rtable == 0)
@@ -168,6 +178,8 @@ scanTable(SelectQuery *query)
 		RangeTblEntry *entry = createRangeTable(rtable->name);
 		rtables = lappend(rtables, entry);
 	}
+
+	scan = (Plan *) createSeqScan(query->sscan, rtables);
 
 	{
 		PlannedStmt *result = makeNode(PlannedStmt);
@@ -200,29 +212,60 @@ scanTable(SelectQuery *query)
 		/* For the forseeable future we will have none of these */
 		result->nParamExec = 0;
 
+		pprint(result);
 		return result;
 	}
 }
 
+/* we need the list of rtables in order to resolve column references */
 static
 SeqScan *
-createSeqScan(void)
+createSeqScan(SequenceScan *scan, List *rtables)
 {
 	SeqScan *node = makeNode(SeqScan);
 	Plan *plan = &node->plan;
+	List *targetList = NULL;
 
-	Var *targetExpr = makeVar(1, 1, 23, -1, 0, 0);
-	TargetEntry *entry = makeTargetEntry((Expr *)targetExpr, 1, "a", false);
-	List *tlist = list_make1(entry);
+	if (scan->table == 0)
+	{
+		ereport(ERROR, (errmsg("range tables are 1-indexed, sequence scan cannot use "
+							   "table \"0\"")));
+	}
 
-	plan->targetlist = tlist;
+	if (scan->table > list_length(rtables))
+	{
+		/* TODO: In a large plan this will be confusing, somehow name `scan` */
+		ereport(ERROR, (errmsg("range table %d does not exist", scan->table)));
+	}
+
+	node->scanrelid = scan->table;
+
+	if (scan->n_target == 0)
+	{
+		ereport(ERROR, (errmsg("sequence scans must project at least one column")));
+	}
+
+	for (int attrno = 0; attrno < scan->n_target; attrno++)
+	{
+		Expression *expression = scan->target[attrno];
+		Expr *expr;
+		TargetEntry *entry;
+
+		if (expression->var != NULL)
+		{
+			expr = (Expr *) createVar(expression->var, scan->table, rtables);
+		} else {
+			ereport(ERROR, (errmsg("only var targets are supported")));
+		}
+
+		entry = makeTargetEntry(expr, attrno + 1, "a", false);
+		targetList = lappend(targetList, entry);
+	}
+
+	plan->targetlist = targetList;
 	plan->qual = NULL; // Nothing for now, this is where WHERE clauses will go
 	plan->lefttree = NULL;
 	plan->righttree = NULL;
-	node->scanrelid = 1; /* An index into the range table, not an oid */
-
-	// TODO: Do we need to populate any of the cost info? Does anything but
-	//       EXPLAIN use it?
 
 	return node;
 }
@@ -244,6 +287,92 @@ createRangeTable(char *tableName)
 	result->relkind = 'r';
 
 	return result;
+}
+
+static
+OpExpr *
+createOpExpr(void)
+{
+	OpExpr *op = makeNode(OpExpr);
+
+	// by the time preprocess_qual_conditions is hit opno's already exist
+	// preprocess_expression?
+	// if not then, then it gets populated before the planner!
+	//   transformExpr does type checking and casting, apparently
+	//   unfortunately, its signature is too crazy for us to assume
+	//   Expr * make_op
+	//   Operator oper
+	//   static Oid binary_oper_exact(List *opname, Oid arg1, Oid arg2)
+	//   Oid OpernameGetOprid(List *names, Oid oprleft, Oid oprright)
+
+	// exprType(Node *expr) might also be useful
+
+	// opno = pg_operator OID of the operator (int4eq -> 96)
+	//   there are some DEFINEs, such as BoleanEqualOperator
+	// opfuncid = pg_proc oid of underlying function (int4eq -> 65)
+	//   RegProcedure get_opcode(Oid opno)
+	//   or, just call set_opfuncid(OpExpr*)
+	// opresulttype = pg_type oid of result value
+	//   Oid get_op_rettype(Oid opno)
+
+	//   op_input_types(Oid opno, Oid *lefttype, Oid *righttype)
+
+	op->opretset = false; // set-returning operators are not supported
+
+	/* collations are not supported */
+	op->opcollid = InvalidOid;
+	op->inputcollid = InvalidOid;
+
+	op->args = NULL; // a list of arguments
+	
+	op->location = -1;
+	return op;
+}
+
+/* 
+ * TODO: visibleTable should be a list (or possibly a bitmap)
+ * TODO: visibleTable and rtables should probably be in some struct
+ */
+static
+Var *
+createVar(Expression__ColumnRef *ref, uint32_t visibleTable, List *rtables)
+{
+	AttrNumber attnum;
+	Oid atttype;
+	Var *result;
+	Oid relid;
+
+	Assert(ref != NULL);
+
+	if (ref->table != visibleTable)
+	{
+		ereport(WARNING, (errmsg("cant select from table %d, using table %d instead",
+								 ref->table, visibleTable)));
+	}
+
+	relid = rangeTableId(rtables, ref->table);
+	attnum = get_attnum(relid, ref->column);
+
+	if (attnum == InvalidAttrNumber)
+	{
+		ereport(ERROR, (errmsg("could not find column %s of table %d",
+							   ref->column, ref->table)));
+	}
+
+	atttype = get_atttype(relid, attnum);
+	/* TODO: Add support for typemod and colid */
+	result = makeVar(ref->table, attnum, atttype, -1, 0, 0);
+	return result;
+}
+
+/* nb: the tables are 1-indexed */
+static
+Oid
+rangeTableId(List *rtables, Index index)
+{
+	RangeTblEntry *rangeTable = (RangeTblEntry *) list_nth(rtables, index - 1);
+	Assert(IsA(rangeTable, RangeTblEntry));
+	return rangeTable->relid;
 }
 
 /* accepts a query, plans it, then dumps the result */

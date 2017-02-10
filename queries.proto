@@ -4,9 +4,33 @@ message SelectQuery {
 }
 
 message SequenceScan {
-  required int32 table = 1;
+  required uint32 table = 1;       // The index of the RangeTable
+  repeated Expression target = 2;  // projection
+  required Expression qual = 3;    // selection
 }
 
 message RangeTable {
   required string name = 1;
+}
+
+message Expression {
+  message ColumnRef {            // Represents a Var
+    required uint32 table = 1;   // The index of the RangeTable
+    required string column = 2;  // The name of the attribute
+  }
+  
+  message Operation {
+    required string name = 1;
+    repeated Expression arg = 2;
+  }
+
+  message Constant {
+    optional string str = 1;
+    optional int32 int = 2;
+    optional uint32 uint = 3;
+  }
+
+  optional ColumnRef var = 1;
+  optional Operation op = 2;
+  optional Constant const = 3;
 }
