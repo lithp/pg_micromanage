@@ -57,3 +57,7 @@ SELECT * FROM run_select(:'buf');
  10
 (1 row)
 
+-- SELECT a FROM a WHERE a + 10;
+\set buf `cat example-messages/select-with-non-bool-qual.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+SELECT * FROM run_select(:'buf');
+ERROR:  quals must return a boolean

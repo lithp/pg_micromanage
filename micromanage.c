@@ -42,6 +42,7 @@ static SeqScan * createSeqScan(SequenceScan *scan, List *rtables);
 static RangeTblEntry * createRangeTable(char *tableName);
 
 static Expr * createExpression(Expression *expression, uint32_t visibleTable, List *rtables);
+static Expr * createQual(Expression *expression, uint32_t visibleTable, List *rtables);
 
 static OpExpr * createOpExpr(Expression__Operation *op, uint32_t visibleTable, List *rtables);
 static Var * createVar(Expression__ColumnRef *ref, uint32_t visibleTable, List *rtables);
@@ -259,7 +260,7 @@ createSeqScan(SequenceScan *scan, List *rtables)
 
 	if (scan->qual != NULL)
 	{
-		qualExpr = createExpression(scan->qual, scan->table, rtables);
+		qualExpr = createQual(scan->qual, scan->table, rtables);
 		plan->qual = list_make1(qualExpr);
 	}
 
@@ -300,6 +301,20 @@ createExpression(Expression *expression, uint32_t visibleTable, List *rtables)
 		default:
 			ereport(ERROR, (errmsg("unrecognized expression type")));
 	}
+}
+
+static Expr * createQual(Expression *expression, uint32_t visibleTable, List *rtables)
+{
+	Expr *result = createExpression(expression, visibleTable, rtables);
+
+	Oid type = exprType((Node *) result);
+	if (type != BOOLOID)
+	{
+		/* TODO: The parser calls coerce_to_boolean here, we can too? */
+		ereport(ERROR, (errmsg("quals must return a boolean")));
+	}
+
+	return result;
 }
 
 static

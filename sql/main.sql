@@ -33,3 +33,7 @@ SELECT * FROM run_select(:'buf');
 -- SELECT a FROM a WHERE a = 10;
 \set buf `cat example-messages/select-where-a-eq.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
 SELECT * FROM run_select(:'buf');
+
+-- SELECT a FROM a WHERE a + 10;
+\set buf `cat example-messages/select-with-non-bool-qual.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+SELECT * FROM run_select(:'buf');
