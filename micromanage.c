@@ -22,6 +22,7 @@
 #include "tcop/pquery.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
+#include "utils/syscache.h"
 #include "utils/portal.h"
 
 #include "queries.pb-c.h"
@@ -48,6 +49,8 @@ static OpExpr * createOpExpr(Expression__Operation *op, uint32_t visibleTable, L
 static Var * createVar(Expression__ColumnRef *ref, uint32_t visibleTable, List *rtables);
 static Oid rangeTableId(List *rtables, Index index);
 static Const * createConst(Expression__Constant *constant);
+
+static char * get_typname(Oid typid);
 
 void
 _PG_init(void)
@@ -344,8 +347,14 @@ createOpExpr(Expression__Operation *op, uint32_t visibleTable, List *rtables)
 	expr->opno = OpernameGetOprid(list_make1(nameAsString), leftType, rightType);
 	if (expr->opno == InvalidOid)
 	{
+		char *leftName = get_typname(leftType);
+		char *rightName = get_typname(rightType);
+
+		char *leftDesc = (leftName == NULL) ? psprintf("%d", leftType) : leftName;
+		char *rightDesc = (rightName == NULL) ? psprintf("%d", rightType) : rightName;
+
 		ereport(ERROR, (errmsg("could not find operator named \"%s\"", op->name),
-					    errdetail("left: \"%d\" right: \"%d\"", leftType, rightType)));
+					    errdetail("arg types: \"%s\" and \"%s\"", leftDesc, rightDesc)));
 	}
 
 	expr->opfuncid = get_opcode(expr->opno);
@@ -477,6 +486,21 @@ Datum dump_query(PG_FUNCTION_ARGS)
 	PG_RETURN_TEXT_P(result);
 }
 
+static char * get_typname(Oid typid)
+{
+	HeapTuple tp;
+
+	tp = SearchSysCache1(TYPEOID, ObjectIdGetDatum(typid));
+	if (HeapTupleIsValid(tp))
+	{
+		Form_pg_type typtup = (Form_pg_type) GETSTRUCT(tp);
+		char *result = pstrdup(NameStr(typtup->typname));
+		ReleaseSysCache(tp);
+		return result;
+	}
+	else
+		return NULL;
+}
 
 PG_FUNCTION_INFO_V1(run_select);
 Datum run_select(PG_FUNCTION_ARGS)
