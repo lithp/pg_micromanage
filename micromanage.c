@@ -13,6 +13,7 @@
 #include "funcapi.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
+#include "nodes/nodeFuncs.h"
 #include "nodes/print.h"
 #include "optimizer/planner.h"
 #include "parser/parse_func.h"
@@ -40,7 +41,9 @@ static PlannedStmt * scanTable(SelectQuery *query);
 static SeqScan * createSeqScan(SequenceScan *scan, List *rtables);
 static RangeTblEntry * createRangeTable(char *tableName);
 
-static OpExpr * createOpExpr(void);
+static Expr * createExpression(Expression *expression, uint32_t visibleTable, List *rtables);
+
+static OpExpr * createOpExpr(Expression__Operation *op, uint32_t visibleTable, List *rtables);
 static Var * createVar(Expression__ColumnRef *ref, uint32_t visibleTable, List *rtables);
 static Oid rangeTableId(List *rtables, Index index);
 static Const * createConst(Expression__Constant *constant);
@@ -247,22 +250,8 @@ createSeqScan(SequenceScan *scan, List *rtables)
 	for (int attrno = 0; attrno < scan->n_target; attrno++)
 	{
 		Expression *expression = scan->target[attrno];
-		Expr *expr;
-		TargetEntry *entry;
-
-		switch (expression->expr_case)
-		{
-			case EXPRESSION__EXPR_VAR:
-				expr = (Expr *) createVar(expression->var, scan->table, rtables);
-				break;
-			case EXPRESSION__EXPR_CONST:
-				expr = (Expr *) createConst(expression->const_);
-				break;
-			default:
-				ereport(ERROR, (errmsg("only var targets are supported")));
-		}
-
-		entry = makeTargetEntry(expr, attrno + 1, "a", false);
+		Expr *expr = createExpression(expression, scan->table, rtables);
+		TargetEntry *entry = makeTargetEntry(expr, attrno + 1, "a", false);
 		targetList = lappend(targetList, entry);
 	}
 
@@ -294,43 +283,66 @@ createRangeTable(char *tableName)
 }
 
 static
-OpExpr *
-createOpExpr(void)
+Expr *
+createExpression(Expression *expression, uint32_t visibleTable, List *rtables)
 {
-	OpExpr *op = makeNode(OpExpr);
+	switch (expression->expr_case)
+	{
+		case EXPRESSION__EXPR_VAR:
+			return (Expr *) createVar(expression->var, visibleTable, rtables);
+		case EXPRESSION__EXPR_CONST:
+			return (Expr *) createConst(expression->const_);
+		case EXPRESSION__EXPR_OP:
+			return (Expr *) createOpExpr(expression->op, visibleTable, rtables);
+		default:
+			ereport(ERROR, (errmsg("unrecognized expression type")));
+	}
+}
 
-	// by the time preprocess_qual_conditions is hit opno's already exist
-	// preprocess_expression?
-	// if not then, then it gets populated before the planner!
-	//   transformExpr does type checking and casting, apparently
-	//   unfortunately, its signature is too crazy for us to assume
-	//   Expr * make_op
-	//   Operator oper
-	//   static Oid binary_oper_exact(List *opname, Oid arg1, Oid arg2)
-	//   Oid OpernameGetOprid(List *names, Oid oprleft, Oid oprright)
+static
+OpExpr *
+createOpExpr(Expression__Operation *op, uint32_t visibleTable, List *rtables)
+{
+	OpExpr *expr = makeNode(OpExpr);
+	Expression *left = op->arg[0];
+	Expression *right = op->arg[1];
 
-	// exprType(Node *expr) might also be useful
+	Expr *leftExpr, *rightExpr;
+	Oid leftType, rightType;
 
-	// opno = pg_operator OID of the operator (int4eq -> 96)
-	//   there are some DEFINEs, such as BoleanEqualOperator
-	// opfuncid = pg_proc oid of underlying function (int4eq -> 65)
-	//   RegProcedure get_opcode(Oid opno)
-	//   or, just call set_opfuncid(OpExpr*)
-	// opresulttype = pg_type oid of result value
-	//   Oid get_op_rettype(Oid opno)
+	Value *nameAsString = makeString(pstrdup(op->name));
 
-	//   op_input_types(Oid opno, Oid *lefttype, Oid *righttype)
+	if (op->n_arg != 2)
+	{
+		ereport(ERROR, (errmsg("only binary operators are supported")));
+	}
 
-	op->opretset = false; // set-returning operators are not supported
+	leftExpr = createExpression(left, visibleTable, rtables);
+	rightExpr = createExpression(right, visibleTable, rtables);
+
+	leftType = exprType((Node *) leftExpr);
+	rightType = exprType((Node *) rightExpr);
+
+	expr->opno = OpernameGetOprid(list_make1(nameAsString), leftType, rightType);
+	if (expr->opno == InvalidOid)
+	{
+		ereport(ERROR, (errmsg("could not find operator named \"%s\"", op->name),
+					    errdetail("left: \"%d\" right: \"%d\"", leftType, rightType)));
+	}
+
+	expr->opfuncid = get_opcode(expr->opno);
+	expr->opresulttype = get_op_rettype(expr->opno);
+
+	expr->opretset = false; // set-returning operators are not supported
 
 	/* collations are not supported */
-	op->opcollid = InvalidOid;
-	op->inputcollid = InvalidOid;
+	expr->opcollid = InvalidOid;
+	expr->inputcollid = InvalidOid;
 
-	op->args = NULL; // a list of arguments
+	expr->args = list_make2(leftExpr, rightExpr);
 	
-	op->location = -1;
-	return op;
+	expr->location = -1;
+	return expr;
 }
 
 /* 
@@ -364,8 +376,8 @@ createVar(Expression__ColumnRef *ref, uint32_t visibleTable, List *rtables)
 							   ref->column, ref->table)));
 	}
 
-	atttype = get_atttype(relid, attnum);
 	/* TODO: Add support for typemod and colid */
+	atttype = get_atttype(relid, attnum);
 	result = makeVar(ref->table, attnum, atttype, -1, 0, 0);
 	return result;
 }
