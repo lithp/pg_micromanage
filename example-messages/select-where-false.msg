@@ -1,16 +1,16 @@
 plan: {
   sscan: {
     table: 1
-    target: {
-      var: {
-        table: 1
-        column: "a"
-      }
+  }
+  target: {
+    var: {
+      table: 1
+      column: "a"
     }
-    qual: {
-      const: {
-        bool: false
-      }
+  }
+  qual: {
+    const: {
+      bool: false
     }
   }
 }

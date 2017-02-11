@@ -1,20 +1,29 @@
 message SelectQuery {
   required PlanNode plan = 1;
-  repeated RangeTable rtable = 2;
+  repeated RangeTable rtable = 2;  // All the tables involved in the query
 }
 
-message SequenceScan {
-  required uint32 table = 1;       // The index of the RangeTable
-  repeated Expression target = 2;  // projection
-  optional Expression qual = 3;    // selection
+message RangeTable {
+  /*
+   * RangeTblEntry. For now this only references relations however RangeTblEntrys
+   * can also reference CTEs, constant values, subqueries, etc. They can also
+   * contain sampling info.
+   */
+  required string name = 1;
 }
 
 message PlanNode {
+  repeated Expression target = 1;  // projection, the cols which are returned
+  optional Expression qual = 2;    // selection, the rows which are returned
   oneof kind {
-    SequenceScan sscan = 1;
-    JoinNode join = 2;
-    Materialize materialize = 3;
+    SequenceScan sscan = 3;
+    JoinNode join = 4;
+    Materialize materialize = 5;
   }
+}
+
+message SequenceScan {
+  required uint32 table = 1;       // The index of the RangeTable to scan
 }
 
 /* run the subplan and store the results on disk, allowing for quick rescanning */
@@ -37,20 +46,24 @@ message JoinNode {
     ANTI = 5;   // returns left if no matching rows exist in right
   }
   required Kind kind = 1;
-  required Type type = 2;
+  required Type type = 2;  // not all types are supported for every kind
   required Expression qual = 3;
-  required PlanNode left = 4;
-  required PlanNode right = 5;
-}
-
-message RangeTable {
-  required string name = 1;
+  required PlanNode left = 4;   // the outer table
+  required PlanNode right = 5;  // the inner table
 }
 
 message Expression {
   message ColumnRef {            // Represents a Var
     required uint32 table = 1;   // The index of the RangeTable
     required string column = 2;  // The name of the attribute
+  }
+
+  message OuterRef {             // A reference to some target of the outer plan
+    required uint32 target = 1;
+  }
+
+  message InnerRef {             // A referene to some target of the inner plan
+    required uint32 target = 2;
   }
   
   message Operation {
@@ -67,7 +80,9 @@ message Expression {
 
   oneof expr {
     ColumnRef var = 1;
-    Operation op = 2;
-    Constant const = 3;
+    OuterRef outer = 2;
+    InnerRef inner = 3;
+    Operation op = 4;
+    Constant const = 5;
   }
 }

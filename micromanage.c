@@ -39,7 +39,7 @@ static PlannedStmt * planForFunc(FuncExpr *funcexpr);
 static SelectQuery * decodeQuery(char *string);
 
 static PlannedStmt * scanTable(SelectQuery *query);
-static SeqScan * createSeqScan(SequenceScan *scan, List *rtables);
+static SeqScan * createSeqScan(SequenceScan *scan, List *rtables, Index *visibleTable);
 static RangeTblEntry * createRangeTable(char *tableName);
 
 static Expr * createExpression(Expression *expression, uint32_t visibleTable, List *rtables);
@@ -230,12 +230,9 @@ scanTable(SelectQuery *query)
 /* we need the list of rtables in order to resolve column references */
 static
 SeqScan *
-createSeqScan(SequenceScan *scan, List *rtables)
+createSeqScan(SequenceScan *scan, List *rtables, Index *scanTable)
 {
 	SeqScan *node = makeNode(SeqScan);
-	Plan *plan = &node->plan;
-	List *targetList = NULL;
-	Expr *qualExpr;
 
 	if (scan->table == 0)
 	{
@@ -249,27 +246,7 @@ createSeqScan(SequenceScan *scan, List *rtables)
 		ereport(ERROR, (errmsg("range table %d does not exist", scan->table)));
 	}
 
-	node->scanrelid = scan->table;
-
-	if (scan->n_target == 0)
-	{
-		ereport(ERROR, (errmsg("sequence scans must project at least one column")));
-	}
-
-	for (int attrno = 0; attrno < scan->n_target; attrno++)
-	{
-		Expression *expression = scan->target[attrno];
-		Expr *expr = createExpression(expression, scan->table, rtables);
-		TargetEntry *entry = makeTargetEntry(expr, attrno + 1, "a", false);
-		targetList = lappend(targetList, entry);
-	}
-	plan->targetlist = targetList;
-
-	if (scan->qual != NULL)
-	{
-		qualExpr = createQual(scan->qual, scan->table, rtables);
-		plan->qual = list_make1(qualExpr);
-	}
+	*scanTable = node->scanrelid = scan->table;
 
 	return node;
 }
@@ -392,6 +369,11 @@ createVar(Expression__ColumnRef *ref, uint32_t visibleTable, List *rtables)
 
 	Assert(ref != NULL);
 
+	if (visibleTable == 0)
+	{
+		ereport(ERROR, (errmsg("cannot create Var, no tables are visible")));
+	}
+
 	if (ref->table != visibleTable)
 	{
 		ereport(WARNING, (errmsg("cant select from table %d, using table %d instead",
@@ -453,16 +435,45 @@ createConst(Expression__Constant *constant)
 
 static Plan * createPlan(PlanNode *plan, List *rtables)
 {
+	Plan *result;
+	List *targetList = NULL;
+	Expr *qualExpr;
+	Index visibleTable = 0;
+
+	if (plan->n_target == 0)
+	{
+		ereport(ERROR, (errmsg("plans must project at least one column")));
+	}
+
 	switch (plan->kind_case)
 	{
-		/* TODO: these should be given visibility information */
 		case PLAN_NODE__KIND_SSCAN:
-			return (Plan *) createSeqScan(plan->sscan, rtables);
+			result = (Plan *) createSeqScan(plan->sscan, rtables, &visibleTable);
+			break;
 		case PLAN_NODE__KIND_JOIN:
-			return (Plan *) createJoin(plan->join, rtables);
+			/* TODO: this should be given visibility information */
+			result = (Plan *) createJoin(plan->join, rtables);
+			break;
 		default:
 			ereport(ERROR, (errmsg("this plan kind is not supported yet")));
 	}
+
+	for (int attrno = 0; attrno < plan->n_target; attrno++)
+	{
+		Expression *expression = plan->target[attrno];
+		Expr *expr = createExpression(expression, visibleTable, rtables);
+		TargetEntry *entry = makeTargetEntry(expr, attrno + 1, "a", false);
+		targetList = lappend(targetList, entry);
+	}
+	result->targetlist = targetList;
+
+	if (plan->qual != NULL)
+	{
+		qualExpr = createQual(plan->qual, visibleTable, rtables);
+		result->qual = list_make1(qualExpr);
+	}
+
+	return result;
 }
 
 static Join * createJoin(JoinNode *join, List *rtables)
@@ -481,6 +492,8 @@ static Join * createJoin(JoinNode *join, List *rtables)
 
 	/* what do we pass createExpression? which tables are visible? */
 	/* there's a difference between Join->joinqual and Join->plan->qual */
+	/* joinqual is a predicate saying whether two rows match */
+	/* qual is just selection again, on the finished row */
 	joinqual = createExpression(join->qual, 0, rtables);
 	result->joinqual = list_make1(joinqual);
 
