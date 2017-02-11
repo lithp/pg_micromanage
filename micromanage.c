@@ -52,6 +52,7 @@ static Const * createConst(Expression__Constant *constant);
 
 static Plan * createPlan(PlanNode *plan, List *rtables);
 static Join * createJoin(JoinNode *join, List *rtables);
+static NestLoop * createNestedLoop(JoinNode *join, List *rtables);
 
 static char * get_typname(Oid typid);
 
@@ -466,7 +467,31 @@ static Plan * createPlan(PlanNode *plan, List *rtables)
 
 static Join * createJoin(JoinNode *join, List *rtables)
 {
-	return NULL;
+	Join *result;
+	Expr *joinqual;
+
+	switch (join->kind)
+	{
+		case JOIN_NODE__KIND__NESTED:
+			result = (Join *) createNestedLoop(join, rtables);
+			break;
+		default:
+			ereport(ERROR, (errmsg("only nestedloop joins are supported")));
+	}
+
+	/* what do we pass createExpression? which tables are visible? */
+	/* there's a difference between Join->joinqual and Join->plan->qual */
+	joinqual = createExpression(join->qual, 0, rtables);
+	result->joinqual = list_make1(joinqual);
+
+	return result;
+}
+
+static NestLoop * createNestedLoop(JoinNode *join, List *rtables)
+{
+	NestLoop *result = NULL;
+	ereport(ERROR, (errmsg("nestedloops do not yet work")));
+	return result;
 }
 
 static char * get_typname(Oid typid)
