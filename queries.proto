@@ -13,7 +13,13 @@ message PlanNode {
   oneof kind {
     SequenceScan sscan = 1;
     JoinNode join = 2;
+    Materialize materialize = 3;
   }
+}
+
+/* run the subplan and store the results on disk, allowing for quick rescanning */
+message Materialize {
+  required PlanNode plan = 1;
 }
 
 message JoinNode {
@@ -23,12 +29,12 @@ message JoinNode {
     NESTED = 4; // Materializes right and scans it for every iteration
   }
   enum Type {
-    INNER = 0;
-    LEFT = 1;
-    FULL = 2;
-    RIGHT = 3;
-    SEMI = 4;
-    ANTI = 5;
+    INNER = 0;  // for every row in left, return it with every matching row of right
+    LEFT = 1;   // inner join but also include rows which don't match any rows from right
+    FULL = 2;   // inner join, but with all the extra results LEFT and RIGHT would add
+    RIGHT = 3;  // left join but for every row of right
+    SEMI = 4;   // returns left if a matching row exists in right
+    ANTI = 5;   // returns left if no matching rows exist in right
   }
   required Kind kind = 1;
   required Type type = 2;

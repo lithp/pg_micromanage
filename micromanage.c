@@ -50,6 +50,9 @@ static Var * createVar(Expression__ColumnRef *ref, uint32_t visibleTable, List *
 static Oid rangeTableId(List *rtables, Index index);
 static Const * createConst(Expression__Constant *constant);
 
+static Plan * createPlan(PlanNode *plan, List *rtables);
+static Join * createJoin(JoinNode *join, List *rtables);
+
 static char * get_typname(Oid typid);
 
 void
@@ -170,7 +173,7 @@ static
 PlannedStmt *
 scanTable(SelectQuery *query)
 {
-	Plan *scan;
+	Plan *plan;
 	List *rtables = NULL;
 
 	if (query->n_rtable == 0)
@@ -185,12 +188,7 @@ scanTable(SelectQuery *query)
 		rtables = lappend(rtables, entry);
 	}
 
-	if (query->plan->kind_case != PLAN_NODE__KIND_SSCAN)
-	{
-		ereport(ERROR, (errmsg("only sequence scans are supported")));
-	}
-
-	scan = (Plan *) createSeqScan(query->plan->sscan, rtables);
+	plan = createPlan(query->plan, rtables);
 
 	{
 		PlannedStmt *result = makeNode(PlannedStmt);
@@ -204,7 +202,7 @@ scanTable(SelectQuery *query)
 		result->dependsOnRole = false;
 		result->parallelModeNeeded = false;
 
-		result->planTree = scan;
+		result->planTree = plan;
 		result->rtable = rtables;
 
 		result->resultRelations = NULL;
@@ -452,6 +450,41 @@ createConst(Expression__Constant *constant)
 	return result;
 }
 
+static Plan * createPlan(PlanNode *plan, List *rtables)
+{
+	switch (plan->kind_case)
+	{
+		/* TODO: these should be given visibility information */
+		case PLAN_NODE__KIND_SSCAN:
+			return (Plan *) createSeqScan(plan->sscan, rtables);
+		case PLAN_NODE__KIND_JOIN:
+			return (Plan *) createJoin(plan->join, rtables);
+		default:
+			ereport(ERROR, (errmsg("this plan kind is not supported yet")));
+	}
+}
+
+static Join * createJoin(JoinNode *join, List *rtables)
+{
+	return NULL;
+}
+
+static char * get_typname(Oid typid)
+{
+	HeapTuple tp;
+
+	tp = SearchSysCache1(TYPEOID, ObjectIdGetDatum(typid));
+	if (HeapTupleIsValid(tp))
+	{
+		Form_pg_type typtup = (Form_pg_type) GETSTRUCT(tp);
+		char *result = pstrdup(NameStr(typtup->typname));
+		ReleaseSysCache(tp);
+		return result;
+	}
+	else
+		return NULL;
+}
+
 /* accepts a query, plans it, then dumps the result */
 PG_FUNCTION_INFO_V1(dump_query);
 Datum dump_query(PG_FUNCTION_ARGS)
@@ -490,22 +523,6 @@ Datum dump_query(PG_FUNCTION_ARGS)
 
 	result = cstring_to_text(pstrdup("check the log"));
 	PG_RETURN_TEXT_P(result);
-}
-
-static char * get_typname(Oid typid)
-{
-	HeapTuple tp;
-
-	tp = SearchSysCache1(TYPEOID, ObjectIdGetDatum(typid));
-	if (HeapTupleIsValid(tp))
-	{
-		Form_pg_type typtup = (Form_pg_type) GETSTRUCT(tp);
-		char *result = pstrdup(NameStr(typtup->typname));
-		ReleaseSysCache(tp);
-		return result;
-	}
-	else
-		return NULL;
 }
 
 PG_FUNCTION_INFO_V1(run_select);
