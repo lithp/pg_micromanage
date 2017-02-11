@@ -1,9 +1,11 @@
-sscan: {
-  table: 1
-  target: {
-    var: {
-      table: 2
-      column: "d"
+plan: {
+  sscan: {
+    table: 1
+    target: {
+      var: {
+        table: 2
+        column: "d"
+      }
     }
   }
 }

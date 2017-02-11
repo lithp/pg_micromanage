@@ -1,5 +1,5 @@
 message SelectQuery {
-  required SequenceScan sscan = 1;
+  required PlanNode plan = 1;
   repeated RangeTable rtable = 2;
 }
 
@@ -7,6 +7,34 @@ message SequenceScan {
   required uint32 table = 1;       // The index of the RangeTable
   repeated Expression target = 2;  // projection
   optional Expression qual = 3;    // selection
+}
+
+message PlanNode {
+  oneof kind {
+    SequenceScan sscan = 1;
+    JoinNode join = 2;
+  }
+}
+
+message JoinNode {
+  enum Kind {
+    HASH = 0;   // Builds a hash table out of right and scans it for every row in left
+    MERGE = 1;  // Sorts left and right on the join column then scans both
+    NESTED = 4; // Materializes right and scans it for every iteration
+  }
+  enum Type {
+    INNER = 0;
+    LEFT = 1;
+    FULL = 2;
+    RIGHT = 3;
+    SEMI = 4;
+    ANTI = 5;
+  }
+  required Kind kind = 1;
+  required Type type = 2;
+  required Expression qual = 3;
+  required PlanNode left = 4;
+  required PlanNode right = 5;
 }
 
 message RangeTable {

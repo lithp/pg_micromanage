@@ -1,14 +1,16 @@
-sscan: {
-  table: 1
-  target: {
-    var: {
-      table: 1
-      column: "a"
+plan: {
+  sscan: {
+    table: 1
+    target: {
+      var: {
+        table: 1
+        column: "a"
+      }
     }
-  }
-  target: {
-    const: {
-      uint: 10
+    target: {
+      const: {
+        uint: 10
+      }
     }
   }
 }

@@ -185,7 +185,12 @@ scanTable(SelectQuery *query)
 		rtables = lappend(rtables, entry);
 	}
 
-	scan = (Plan *) createSeqScan(query->sscan, rtables);
+	if (query->plan->kind_case != PLAN_NODE__KIND_SSCAN)
+	{
+		ereport(ERROR, (errmsg("only sequence scans are supported")));
+	}
+
+	scan = (Plan *) createSeqScan(query->plan->sscan, rtables);
 
 	{
 		PlannedStmt *result = makeNode(PlannedStmt);
@@ -338,6 +343,7 @@ createOpExpr(Expression__Operation *op, uint32_t visibleTable, List *rtables)
 		ereport(ERROR, (errmsg("only binary operators are supported")));
 	}
 
+	/* TOOD: check stack depth? */
 	leftExpr = createExpression(left, visibleTable, rtables);
 	rightExpr = createExpression(right, visibleTable, rtables);
 
