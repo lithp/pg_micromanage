@@ -2,7 +2,7 @@
  * Known limitations:
  * - does not populate any cost info
  * - likely does not respect any security settings
- * - who knows whether it will work inside a transaction
+ * - it will /probably/ work inside a transaction?
  * - leaks memory, maybe don't run too many of these in a single session
  */
 #include "postgres.h"
@@ -74,8 +74,7 @@ static JoinType joinTypeMapping(JoinNode__Type protobufType);
 static char * get_typname(Oid typid);
 static Context * makeContext(void);
 
-void
-_PG_init(void)
+void _PG_init(void)
 {
 	if (planner_hook != NULL)
 	{
@@ -87,8 +86,7 @@ _PG_init(void)
 
 /* TODO: This doesn't happen the first time.. but the second time it does? */
 /* Maybe we need to be added to shared_preload_libraries? */
-PlannedStmt *
-skip_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
+PlannedStmt * skip_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 {
 	CmdType commandType = parse->commandType;
 	RangeTblEntry *rangeTable;
@@ -134,8 +132,7 @@ use_standard_planner:
 	return standard_planner(parse, cursorOptions, boundParams);
 }
 
-PlannedStmt *
-planForFunc(FuncExpr *funcexpr)
+PlannedStmt * planForFunc(FuncExpr *funcexpr)
 {
 	Const *arg;
 	char *protobufString;
@@ -156,9 +153,7 @@ planForFunc(FuncExpr *funcexpr)
 	return scanTable(protobuf);
 }
 
-static
-SelectQuery *
-decodeQuery(char *string)
+static SelectQuery * decodeQuery(char *string)
 {
 	SelectQuery *protobuf;
 
@@ -187,10 +182,7 @@ decodeQuery(char *string)
 	return protobuf;
 }
 
-
-static
-PlannedStmt *
-scanTable(SelectQuery *query)
+static PlannedStmt * scanTable(SelectQuery *query)
 {
 	Plan *plan;
 	List *rtables = NULL;
@@ -246,9 +238,7 @@ scanTable(SelectQuery *query)
 }
 
 /* we need the list of rtables in order to resolve column references */
-static
-SeqScan *
-createSeqScan(Context *context, SequenceScan *scan)
+static SeqScan * createSeqScan(Context *context, SequenceScan *scan)
 {
 	SeqScan *node = makeNode(SeqScan);
 
@@ -269,9 +259,7 @@ createSeqScan(Context *context, SequenceScan *scan)
 	return node;
 }
 
-static
-RangeTblEntry *
-createRangeTable(char *tableName)
+static RangeTblEntry * createRangeTable(char *tableName)
 {
 	RangeTblEntry *result = makeNode(RangeTblEntry);
 	Oid relationId = get_relname_relid(tableName, PG_PUBLIC_NAMESPACE);
@@ -288,9 +276,7 @@ createRangeTable(char *tableName)
 	return result;
 }
 
-static
-Expr *
-createExpression(Context *context, Expression *expression)
+static Expr * createExpression(Context *context, Expression *expression)
 {
 	switch (expression->expr_case)
 	{
@@ -323,9 +309,7 @@ static Expr * createQual(Context *context, Expression *expression)
 	return result;
 }
 
-static
-OpExpr *
-createOpExpr(Context *context, Expression__Operation *op)
+static OpExpr * createOpExpr(Context *context, Expression__Operation *op)
 {
 	OpExpr *expr = makeNode(OpExpr);
 	Expression *left = op->arg[0];
@@ -527,7 +511,8 @@ static Plan * createPlan(PlanNode *plan, List *rtables)
 			result = (Plan *) createJoin(context, plan->join);
 			break;
 		default:
-			ereport(ERROR, (errmsg("this plan kind is not supported yet")));
+			ereport(ERROR, (errmsg("plan kind %d is not supported yet",
+							plan->kind_case)));
 	}
 
 	for (int attrno = 0; attrno < plan->n_target; attrno++)
@@ -585,6 +570,7 @@ static NestLoop * createNestedLoop(JoinNode *join, List *rtables)
 	if (join->type == JOIN_NODE__TYPE__RIGHT)
 	{
 		ereport(ERROR, (errmsg("nestedloops do not support RIGHT OUTER joins"),
+						errdetail("how would a nestedloop even do that?"),
 						errhint("flip the branches then use a LEFT OUTER join")));
 	}
 

@@ -118,4 +118,5 @@ SELECT * FROM run_select(:'buf');
 \set buf `cat example-messages/simple-right-nestedloop.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
 SELECT * FROM run_select(:'buf');
 ERROR:  nestedloops do not support RIGHT OUTER joins
+DETAIL:  how would a nestedloop even do that?
 HINT:  flip the branches then use a LEFT OUTER join
