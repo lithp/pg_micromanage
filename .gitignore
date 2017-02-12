@@ -36,3 +36,9 @@ queries.pb-c.*
 
 # vim files
 *.swp
+tags
+
+# Testing files
+results/*
+regression.diffs
+regression.out
