@@ -34,6 +34,7 @@ PG_MODULE_MAGIC;
 #endif
 
 /* TODO: visibleTable should be a list (or possibly a bitmap) */
+/* maybe this is actually an ExpressionContext? */
 typedef struct
 {
 	List *rtables;
@@ -57,12 +58,15 @@ static Expr * createExpression(Context *context, Expression *expression);
 static Expr * createQual(Context *context, Expression *expression);
 static OpExpr * createOpExpr(Context *context, Expression__Operation *op);
 static Var * createVar(Context *context, Expression__ColumnRef *ref);
+static Var * createLeftRef(Context *context, Expression__LeftRef *ref);
+static Var * createRightRef(Context *context, Expression__RightRef *ref);
 static Const * createConst(Expression__Constant *constant);
 
 static Plan * createPlan(PlanNode *plan, List *rtables);
 static Join * createJoin(JoinNode *join, List *rtables);
 static NestLoop * createNestedLoop(JoinNode *join, List *rtables);
 
+static Var * createSubPlanRef(int kind, List *targets, uint32_t target);
 static Oid rangeTableId(List *rtables, Index index);
 static JoinType joinTypeMapping(JoinNode__Type protobufType);
 static char * get_typname(Oid typid);
@@ -290,6 +294,10 @@ createExpression(Context *context, Expression *expression)
 	{
 		case EXPRESSION__EXPR_VAR:
 			return (Expr *) createVar(context, expression->var);
+		case EXPRESSION__EXPR_LEFT_REF:
+			return (Expr *) createLeftRef(context, expression->leftref);
+		case EXPRESSION__EXPR_RIGHT_REF:
+			return (Expr *) createRightRef(context, expression->rightref);
 		case EXPRESSION__EXPR_CONST:
 			return (Expr *) createConst(expression->const_);
 		case EXPRESSION__EXPR_OP:
@@ -366,16 +374,12 @@ createOpExpr(Context *context, Expression__Operation *op)
 	return expr;
 }
 
-static
-Var *
-createVar(Context *context, Expression__ColumnRef *ref)
+static Var * createVar(Context *context, Expression__ColumnRef *ref)
 {
 	AttrNumber attnum;
 	Oid atttype;
 	Var *result;
 	Oid relid;
-
-	Assert(ref != NULL);
 
 	if (context->visibleTable == 0)
 	{
@@ -404,19 +408,75 @@ createVar(Context *context, Expression__ColumnRef *ref)
 	return result;
 }
 
+static Var * createLeftRef(Context *context, Expression__LeftRef *ref)
+{
+	int targetCount = list_length(context->leftTargets);
+
+	if (context->leftTargets == NULL)
+	{
+		ereport(ERROR, (errmsg("cannot create LeftRef, there is no left subplan")));
+	}
+
+	if (ref->target == 0)
+	{
+		ereport(ERROR, (errmsg("LeftRef indexes are 1-indexed")));
+	}
+
+	if (ref->target > targetCount)
+	{
+		ereport(ERROR, (errmsg("LeftRef(%d), there are only %d targets",
+						ref->target, targetCount)));
+	}
+
+	return createSubPlanRef(OUTER_VAR, context->leftTargets, ref->target);
+}
+
+static Var * createRightRef(Context *context, Expression__RightRef *ref)
+{
+	int targetCount = list_length(context->rightTargets);
+
+	if (context->rightTargets == NULL)
+	{
+		ereport(ERROR, (errmsg("cannot create RightRef, there is no right subplan")));
+	}
+
+	if (ref->target == 0)
+	{
+		ereport(ERROR, (errmsg("RightRef indexes are 1-indexed")));
+	}
+
+	if (ref->target > targetCount)
+	{
+		ereport(ERROR, (errmsg("RightRef(%d), there are only %d targets",
+						ref->target, targetCount)));
+	}
+
+	return createSubPlanRef(INNER_VAR, context->rightTargets, ref->target);
+}
+
+/* caller is responsible for ensuring the list is long enough */
+static Var * createSubPlanRef(int kind, List *targets, uint32_t target)
+{
+	Node *targetNode = list_nth(targets, target - 1);
+
+	/* exprCollation() also exists */
+	Oid atttype = exprType(targetNode);
+	int32 atttypemod = exprTypmod(targetNode);
+
+	/* I have no idea when to set varlevelsup... */
+	Var *result = makeVar(INNER_VAR, target, atttype, atttypemod, 0, 0);
+	return result;
+}
+
 /* nb: the tables are 1-indexed */
-static
-Oid
-rangeTableId(List *rtables, Index index)
+static Oid rangeTableId(List *rtables, Index index)
 {
 	RangeTblEntry *rangeTable = (RangeTblEntry *) list_nth(rtables, index - 1);
 	Assert(IsA(rangeTable, RangeTblEntry));
 	return rangeTable->relid;
 }
 
-static
-Const *
-createConst(Expression__Constant *constant)
+static Const * createConst(Expression__Constant *constant)
 {
 	Const *result = makeNode(Const);
 
@@ -461,7 +521,7 @@ static Plan * createPlan(PlanNode *plan, List *rtables)
 			result = (Plan *) createSeqScan(context, plan->sscan, &context->visibleTable);
 			break;
 		case PLAN_NODE__KIND_JOIN:
-			/* TODO: this should be given visibility information */
+			/* TODO: pass a context here as well */
 			result = (Plan *) createJoin(plan->join, rtables);
 			break;
 		default:
@@ -489,6 +549,7 @@ static Plan * createPlan(PlanNode *plan, List *rtables)
 static Join * createJoin(JoinNode *join, List *rtables)
 {
 	Join *result;
+	Plan *resultPlan;
 	Expr *joinqual;
 	Context *context = makeContext();
 
@@ -501,13 +562,16 @@ static Join * createJoin(JoinNode *join, List *rtables)
 			ereport(ERROR, (errmsg("only nestedloop joins are supported")));
 	}
 
+	resultPlan = &result->plan;
+	resultPlan->lefttree = createPlan(join->left, rtables);
+	resultPlan->righttree = createPlan(join->right, rtables);
+
 	context->visibleTable = 0;
 	context->rtables = rtables;
+	context->leftTargets = resultPlan->lefttree->targetlist;
+	context->rightTargets = resultPlan->righttree->targetlist;
 
-	/* what do we pass createExpression? which tables are visible? */
-	/* there's a difference between Join->joinqual and Join->plan->qual */
-	/* joinqual is a predicate saying whether two rows match */
-	/* qual is just selection again, on the finished row */
+	/* what do we pass createExpression? which tables should be visible? */
 	joinqual = createExpression(context, join->joinqual);
 	result->joinqual = list_make1(joinqual);
 
@@ -518,7 +582,6 @@ static NestLoop * createNestedLoop(JoinNode *join, List *rtables)
 {
 	NestLoop *result = makeNode(NestLoop);
 	Join *resultJoin = &result->join;
-	Plan *resultPlan = &resultJoin->plan;
 
 	if (join->type == JOIN_NODE__TYPE__RIGHT)
 	{
@@ -535,10 +598,6 @@ static NestLoop * createNestedLoop(JoinNode *join, List *rtables)
 
 	resultJoin->jointype = joinTypeMapping(join->type);
 
-	resultPlan->lefttree = createPlan(join->left, rtables);
-	resultPlan->righttree = createPlan(join->right, rtables);
-
-	ereport(ERROR, (errmsg("nestedloops do not yet work")));
 	return result;
 }
 

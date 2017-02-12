@@ -87,3 +87,11 @@ DETAIL:  arg types: "int4" and "bool"
 SELECT * FROM run_select(:'buf');
 ERROR:  could not find operator named "="
 DETAIL:  arg types: "int4" and "bool"
+-- not expressible, should gracefully error
+\set buf `cat example-messages/select-inner-from-a.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+SELECT * FROM run_select(:'buf');
+ERROR:  cannot create RightRef, there is no right subplan
+-- not expressible, should gracefully error
+\set buf `cat example-messages/select-outer-from-a.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+SELECT * FROM run_select(:'buf');
+ERROR:  cannot create LeftRef, there is no left subplan

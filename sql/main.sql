@@ -53,3 +53,11 @@ SELECT * FROM run_select(:'buf');
 -- SELECT a = true FROM a;
 \set buf `cat example-messages/select-a-eq-true.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
 SELECT * FROM run_select(:'buf');
+
+-- not expressible, should gracefully error
+\set buf `cat example-messages/select-inner-from-a.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+SELECT * FROM run_select(:'buf');
+
+-- not expressible, should gracefully error
+\set buf `cat example-messages/select-outer-from-a.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+SELECT * FROM run_select(:'buf');

@@ -47,7 +47,13 @@ message JoinNode {
   }
   required Kind kind = 1;
   required Type type = 2;  // not all types are supported for every kind
+
+  /*
+   * joinqual decides which rows match, which rows should be filled with NULLs
+   * qual (in the plan containing this JoinNode) chooses which of the joined rows to keep
+   */
   required Expression joinqual = 3;
+
   required PlanNode left = 4;   // the outer table
   required PlanNode right = 5;  // the inner table
 }
