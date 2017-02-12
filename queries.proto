@@ -35,7 +35,7 @@ message JoinNode {
   enum Kind {
     HASH = 0;   // Builds a hash table out of right and scans it for every row in left
     MERGE = 1;  // Sorts left and right on the join column then scans both
-    NESTED = 4; // Materializes right and scans it for every iteration
+    NESTED = 2; // Materializes right and scans it for every iteration
   }
   enum Type {
     INNER = 0;  // for every row in left, return it with every matching row of right
@@ -47,7 +47,7 @@ message JoinNode {
   }
   required Kind kind = 1;
   required Type type = 2;  // not all types are supported for every kind
-  required Expression qual = 3;
+  required Expression joinqual = 3;
   required PlanNode left = 4;   // the outer table
   required PlanNode right = 5;  // the inner table
 }
@@ -58,11 +58,11 @@ message Expression {
     required string column = 2;  // The name of the attribute
   }
 
-  message OuterRef {             // A reference to some target of the outer plan
+  message LeftRef {
     required uint32 target = 1;
   }
 
-  message InnerRef {             // A referene to some target of the inner plan
+  message RightRef {
     required uint32 target = 2;
   }
   
@@ -80,8 +80,8 @@ message Expression {
 
   oneof expr {
     ColumnRef var = 1;
-    OuterRef outer = 2;
-    InnerRef inner = 3;
+    LeftRef leftRef = 2;
+    RightRef rightRef = 3;
     Operation op = 4;
     Constant const = 5;
   }

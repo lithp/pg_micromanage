@@ -3,6 +3,7 @@
  * - does not populate any cost info
  * - likely does not respect any security settings
  * - who knows whether it will work inside a transaction
+ * - leaks memory, maybe don't run too many of these in a single session
  */
 #include "postgres.h"
 
@@ -32,6 +33,15 @@
 PG_MODULE_MAGIC;
 #endif
 
+/* TODO: visibleTable should be a list (or possibly a bitmap) */
+typedef struct
+{
+	List *rtables;
+	Index visibleTable;  // Which rtables are currently visible to vars
+	List *leftTargets;   // Inside a join, so LeftRef's know what they're referencing
+	List *rightTargets;  // Inside a join, so RightRef's know what they're referencing
+} Context;
+
 void _PG_init(void);
 PlannedStmt * skip_planner(Query *, int, ParamListInfo);
 
@@ -39,22 +49,24 @@ static PlannedStmt * planForFunc(FuncExpr *funcexpr);
 static SelectQuery * decodeQuery(char *string);
 
 static PlannedStmt * scanTable(SelectQuery *query);
-static SeqScan * createSeqScan(SequenceScan *scan, List *rtables, Index *visibleTable);
+
+static SeqScan * createSeqScan(Context *context, SequenceScan *scan, Index *scanTable);
 static RangeTblEntry * createRangeTable(char *tableName);
 
-static Expr * createExpression(Expression *expression, uint32_t visibleTable, List *rtables);
-static Expr * createQual(Expression *expression, uint32_t visibleTable, List *rtables);
-
-static OpExpr * createOpExpr(Expression__Operation *op, uint32_t visibleTable, List *rtables);
-static Var * createVar(Expression__ColumnRef *ref, uint32_t visibleTable, List *rtables);
-static Oid rangeTableId(List *rtables, Index index);
+static Expr * createExpression(Context *context, Expression *expression);
+static Expr * createQual(Context *context, Expression *expression);
+static OpExpr * createOpExpr(Context *context, Expression__Operation *op);
+static Var * createVar(Context *context, Expression__ColumnRef *ref);
 static Const * createConst(Expression__Constant *constant);
 
 static Plan * createPlan(PlanNode *plan, List *rtables);
 static Join * createJoin(JoinNode *join, List *rtables);
 static NestLoop * createNestedLoop(JoinNode *join, List *rtables);
 
+static Oid rangeTableId(List *rtables, Index index);
+static JoinType joinTypeMapping(JoinNode__Type protobufType);
 static char * get_typname(Oid typid);
+static Context * makeContext(void);
 
 void
 _PG_init(void)
@@ -230,7 +242,7 @@ scanTable(SelectQuery *query)
 /* we need the list of rtables in order to resolve column references */
 static
 SeqScan *
-createSeqScan(SequenceScan *scan, List *rtables, Index *scanTable)
+createSeqScan(Context *context, SequenceScan *scan, Index *scanTable)
 {
 	SeqScan *node = makeNode(SeqScan);
 
@@ -240,7 +252,7 @@ createSeqScan(SequenceScan *scan, List *rtables, Index *scanTable)
 							   "table \"0\"")));
 	}
 
-	if (scan->table > list_length(rtables))
+	if (scan->table > list_length(context->rtables))
 	{
 		/* TODO: In a large plan this will be confusing, somehow name `scan` */
 		ereport(ERROR, (errmsg("range table %d does not exist", scan->table)));
@@ -272,24 +284,24 @@ createRangeTable(char *tableName)
 
 static
 Expr *
-createExpression(Expression *expression, uint32_t visibleTable, List *rtables)
+createExpression(Context *context, Expression *expression)
 {
 	switch (expression->expr_case)
 	{
 		case EXPRESSION__EXPR_VAR:
-			return (Expr *) createVar(expression->var, visibleTable, rtables);
+			return (Expr *) createVar(context, expression->var);
 		case EXPRESSION__EXPR_CONST:
 			return (Expr *) createConst(expression->const_);
 		case EXPRESSION__EXPR_OP:
-			return (Expr *) createOpExpr(expression->op, visibleTable, rtables);
+			return (Expr *) createOpExpr(context, expression->op);
 		default:
 			ereport(ERROR, (errmsg("unrecognized expression type")));
 	}
 }
 
-static Expr * createQual(Expression *expression, uint32_t visibleTable, List *rtables)
+static Expr * createQual(Context *context, Expression *expression)
 {
-	Expr *result = createExpression(expression, visibleTable, rtables);
+	Expr *result = createExpression(context, expression);
 
 	Oid type = exprType((Node *) result);
 	if (type != BOOLOID)
@@ -303,7 +315,7 @@ static Expr * createQual(Expression *expression, uint32_t visibleTable, List *rt
 
 static
 OpExpr *
-createOpExpr(Expression__Operation *op, uint32_t visibleTable, List *rtables)
+createOpExpr(Context *context, Expression__Operation *op)
 {
 	OpExpr *expr = makeNode(OpExpr);
 	Expression *left = op->arg[0];
@@ -320,8 +332,8 @@ createOpExpr(Expression__Operation *op, uint32_t visibleTable, List *rtables)
 	}
 
 	/* TOOD: check stack depth? */
-	leftExpr = createExpression(left, visibleTable, rtables);
-	rightExpr = createExpression(right, visibleTable, rtables);
+	leftExpr = createExpression(context, left);
+	rightExpr = createExpression(context, right);
 
 	leftType = exprType((Node *) leftExpr);
 	rightType = exprType((Node *) rightExpr);
@@ -354,13 +366,9 @@ createOpExpr(Expression__Operation *op, uint32_t visibleTable, List *rtables)
 	return expr;
 }
 
-/* 
- * TODO: visibleTable should be a list (or possibly a bitmap)
- * TODO: visibleTable and rtables should probably be in some struct
- */
 static
 Var *
-createVar(Expression__ColumnRef *ref, uint32_t visibleTable, List *rtables)
+createVar(Context *context, Expression__ColumnRef *ref)
 {
 	AttrNumber attnum;
 	Oid atttype;
@@ -369,19 +377,19 @@ createVar(Expression__ColumnRef *ref, uint32_t visibleTable, List *rtables)
 
 	Assert(ref != NULL);
 
-	if (visibleTable == 0)
+	if (context->visibleTable == 0)
 	{
 		ereport(ERROR, (errmsg("cannot create Var, no tables are visible")));
 	}
 
-	if (ref->table != visibleTable)
+	if (ref->table != context->visibleTable)
 	{
 		ereport(WARNING, (errmsg("cant select from table %d, using table %d instead",
-								 ref->table, visibleTable)));
-		ref->table = visibleTable;
+								 ref->table, context->visibleTable)));
+		ref->table = context->visibleTable;
 	}
 
-	relid = rangeTableId(rtables, ref->table);
+	relid = rangeTableId(context->rtables, ref->table);
 	attnum = get_attnum(relid, ref->column);
 
 	if (attnum == InvalidAttrNumber)
@@ -425,7 +433,7 @@ createConst(Expression__Constant *constant)
 			result->constbyval = true;
 			break;
 		default:
-			ereport(ERROR, (errmsg("constants other than uint aren't supported")));
+			ereport(ERROR, (errmsg("constants other than uint and bool aren't supported")));
 	}
 
 	result->location = -1; /* "unknown", where in the query string it was found */
@@ -438,7 +446,9 @@ static Plan * createPlan(PlanNode *plan, List *rtables)
 	Plan *result;
 	List *targetList = NULL;
 	Expr *qualExpr;
-	Index visibleTable = 0;
+	Context *context = makeContext();
+
+	context->rtables = rtables;
 
 	if (plan->n_target == 0)
 	{
@@ -448,7 +458,7 @@ static Plan * createPlan(PlanNode *plan, List *rtables)
 	switch (plan->kind_case)
 	{
 		case PLAN_NODE__KIND_SSCAN:
-			result = (Plan *) createSeqScan(plan->sscan, rtables, &visibleTable);
+			result = (Plan *) createSeqScan(context, plan->sscan, &context->visibleTable);
 			break;
 		case PLAN_NODE__KIND_JOIN:
 			/* TODO: this should be given visibility information */
@@ -461,7 +471,7 @@ static Plan * createPlan(PlanNode *plan, List *rtables)
 	for (int attrno = 0; attrno < plan->n_target; attrno++)
 	{
 		Expression *expression = plan->target[attrno];
-		Expr *expr = createExpression(expression, visibleTable, rtables);
+		Expr *expr = createExpression(context, expression);
 		TargetEntry *entry = makeTargetEntry(expr, attrno + 1, "a", false);
 		targetList = lappend(targetList, entry);
 	}
@@ -469,7 +479,7 @@ static Plan * createPlan(PlanNode *plan, List *rtables)
 
 	if (plan->qual != NULL)
 	{
-		qualExpr = createQual(plan->qual, visibleTable, rtables);
+		qualExpr = createQual(context, plan->qual);
 		result->qual = list_make1(qualExpr);
 	}
 
@@ -480,6 +490,7 @@ static Join * createJoin(JoinNode *join, List *rtables)
 {
 	Join *result;
 	Expr *joinqual;
+	Context *context = makeContext();
 
 	switch (join->kind)
 	{
@@ -490,11 +501,14 @@ static Join * createJoin(JoinNode *join, List *rtables)
 			ereport(ERROR, (errmsg("only nestedloop joins are supported")));
 	}
 
+	context->visibleTable = 0;
+	context->rtables = rtables;
+
 	/* what do we pass createExpression? which tables are visible? */
 	/* there's a difference between Join->joinqual and Join->plan->qual */
 	/* joinqual is a predicate saying whether two rows match */
 	/* qual is just selection again, on the finished row */
-	joinqual = createExpression(join->qual, 0, rtables);
+	joinqual = createExpression(context, join->joinqual);
 	result->joinqual = list_make1(joinqual);
 
 	return result;
@@ -502,9 +516,63 @@ static Join * createJoin(JoinNode *join, List *rtables)
 
 static NestLoop * createNestedLoop(JoinNode *join, List *rtables)
 {
-	NestLoop *result = NULL;
+	NestLoop *result = makeNode(NestLoop);
+	Join *resultJoin = &result->join;
+	Plan *resultPlan = &resultJoin->plan;
+
+	if (join->type == JOIN_NODE__TYPE__RIGHT)
+	{
+		ereport(ERROR, (errmsg("nestedloops do not support RIGHT OUTER joins"),
+						errhint("flip the branches then use a LEFT OUTER join")));
+	}
+
+	if (join->type == JOIN_NODE__TYPE__FULL)
+	{
+		ereport(ERROR, (errmsg("nestedloops do not support FULL OUTER joins"),
+						errdetail("how would a nestedloop even do that?"),
+						errhint("use a different join type")));
+	}
+
+	resultJoin->jointype = joinTypeMapping(join->type);
+
+	resultPlan->lefttree = createPlan(join->left, rtables);
+	resultPlan->righttree = createPlan(join->right, rtables);
+
 	ereport(ERROR, (errmsg("nestedloops do not yet work")));
 	return result;
+}
+
+static JoinType joinTypeMapping(JoinNode__Type protobufType)
+{
+	switch (protobufType)
+	{
+		case JOIN_NODE__TYPE__INNER:
+			return JOIN_INNER;
+		case JOIN_NODE__TYPE__LEFT:
+			return JOIN_LEFT;
+		case JOIN_NODE__TYPE__FULL:
+			return JOIN_FULL;
+		case JOIN_NODE__TYPE__RIGHT:
+			return JOIN_RIGHT;
+		case JOIN_NODE__TYPE__SEMI:
+			return JOIN_SEMI;
+		case JOIN_NODE__TYPE__ANTI:
+			return JOIN_ANTI;
+		default:
+			ereport(ERROR, (errmsg("unrecognized join type: %d", protobufType)));
+	}
+}
+
+static Context * makeContext(void)
+{
+	Context *context = palloc0fast(sizeof(Context));
+
+	context->rtables = NULL;
+	context->visibleTable = 0;
+	context->leftTargets = NULL;
+	context->rightTargets = NULL;
+
+	return context;
 }
 
 static char * get_typname(Oid typid)
