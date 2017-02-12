@@ -5,22 +5,12 @@ plan: {
     joinqual: {
       op: {
         name: "="
-        arg: {
-          leftRef: {
-            target: 1
-          }
-        }
-        arg: {
-          rightRef: {
-            target: 1
-          }
-        }
+        arg: { leftRef: { target: 1 } }
+        arg: { rightRef: { target: 1 } }
       }
     }
     left: {
-      sscan: {
-        table: 1
-      }
+      sscan: { table: 1 }
       target: {
         var: {
           table: 1
@@ -29,9 +19,7 @@ plan: {
       }
     }
     right: {
-      sscan: {
-        table: 2
-      }
+      sscan: { table: 2 }
       target: {
         var: {
           table: 2
@@ -41,14 +29,8 @@ plan: {
     }
   }
   target: {
-    leftRef: {
-      target: 1
-    }
+    leftRef: { target: 1 }
   }
 }
-rtable: {
-  name: "a"
-}
-rtable: {
-  name: "b"
-}
+rtable: { name: "a" }
+rtable: { name: "b" }

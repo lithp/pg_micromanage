@@ -64,6 +64,14 @@ SELECT * FROM run_select(:'buf');
 
 CREATE TABLE b (a int);
 INSERT INTO b VALUES (1);
--- SELECT a.a FROM a INNER JOIN b ON (a.a = b.a);
-\set buf `cat example-messages/simple-nestedloop.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+-- SELECT a.a FROM a INNER NESTEDLOOP JOIN b ON (a.a = b.a);
+\set buf `cat example-messages/simple-inner-nestedloop.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+SELECT * FROM run_select(:'buf');
+
+-- SELECT a.a FROM a LEFT NESTEDLOOP JOIN b ON (a.a = b.a);
+\set buf `cat example-messages/simple-left-nestedloop.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+SELECT * FROM run_select(:'buf');
+
+-- SELECT a.a FROM a RIGHT NESTEDLOOP JOIN b ON (a.a = b.a);
+\set buf `cat example-messages/simple-right-nestedloop.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
 SELECT * FROM run_select(:'buf');

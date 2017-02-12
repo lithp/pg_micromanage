@@ -97,11 +97,25 @@ SELECT * FROM run_select(:'buf');
 ERROR:  cannot create LeftRef, there is no left subplan
 CREATE TABLE b (a int);
 INSERT INTO b VALUES (1);
--- SELECT a.a FROM a INNER JOIN b ON (a.a = b.a);
-\set buf `cat example-messages/simple-nestedloop.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+-- SELECT a.a FROM a INNER NESTEDLOOP JOIN b ON (a.a = b.a);
+\set buf `cat example-messages/simple-inner-nestedloop.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
 SELECT * FROM run_select(:'buf');
  a 
 ---
  1
 (1 row)
 
+-- SELECT a.a FROM a LEFT NESTEDLOOP JOIN b ON (a.a = b.a);
+\set buf `cat example-messages/simple-left-nestedloop.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+SELECT * FROM run_select(:'buf');
+ a  
+----
+  1
+ 10
+(2 rows)
+
+-- SELECT a.a FROM a RIGHT NESTEDLOOP JOIN b ON (a.a = b.a);
+\set buf `cat example-messages/simple-right-nestedloop.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+SELECT * FROM run_select(:'buf');
+ERROR:  nestedloops do not support RIGHT OUTER joins
+HINT:  flip the branches then use a LEFT OUTER join
