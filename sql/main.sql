@@ -61,3 +61,9 @@ SELECT * FROM run_select(:'buf');
 -- not expressible, should gracefully error
 \set buf `cat example-messages/select-outer-from-a.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
 SELECT * FROM run_select(:'buf');
+
+CREATE TABLE b (a int);
+INSERT INTO b VALUES (1);
+-- SELECT a.a FROM a INNER JOIN b ON (a.a = b.a);
+\set buf `cat example-messages/simple-nestedloop.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+SELECT * FROM run_select(:'buf');

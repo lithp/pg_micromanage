@@ -51,7 +51,11 @@ static SelectQuery * decodeQuery(char *string);
 
 static PlannedStmt * scanTable(SelectQuery *query);
 
-static SeqScan * createSeqScan(Context *context, SequenceScan *scan, Index *scanTable);
+static Plan * createPlan(PlanNode *plan, List *rtables);
+
+static Join * createJoin(Context *context, JoinNode *join);
+static SeqScan * createSeqScan(Context *context, SequenceScan *scan);
+
 static RangeTblEntry * createRangeTable(char *tableName);
 
 static Expr * createExpression(Context *context, Expression *expression);
@@ -62,8 +66,6 @@ static Var * createLeftRef(Context *context, Expression__LeftRef *ref);
 static Var * createRightRef(Context *context, Expression__RightRef *ref);
 static Const * createConst(Expression__Constant *constant);
 
-static Plan * createPlan(PlanNode *plan, List *rtables);
-static Join * createJoin(JoinNode *join, List *rtables);
 static NestLoop * createNestedLoop(JoinNode *join, List *rtables);
 
 static Var * createSubPlanRef(int kind, List *targets, uint32_t target);
@@ -246,7 +248,7 @@ scanTable(SelectQuery *query)
 /* we need the list of rtables in order to resolve column references */
 static
 SeqScan *
-createSeqScan(Context *context, SequenceScan *scan, Index *scanTable)
+createSeqScan(Context *context, SequenceScan *scan)
 {
 	SeqScan *node = makeNode(SeqScan);
 
@@ -262,7 +264,7 @@ createSeqScan(Context *context, SequenceScan *scan, Index *scanTable)
 		ereport(ERROR, (errmsg("range table %d does not exist", scan->table)));
 	}
 
-	*scanTable = node->scanrelid = scan->table;
+	context->visibleTable = node->scanrelid = scan->table;
 
 	return node;
 }
@@ -457,14 +459,15 @@ static Var * createRightRef(Context *context, Expression__RightRef *ref)
 /* caller is responsible for ensuring the list is long enough */
 static Var * createSubPlanRef(int kind, List *targets, uint32_t target)
 {
-	Node *targetNode = list_nth(targets, target - 1);
+	TargetEntry *targetEntry = list_nth(targets, target - 1);
+	//Assert(IsA(targetEntry, TargetEntry));
 
 	/* exprCollation() also exists */
-	Oid atttype = exprType(targetNode);
-	int32 atttypemod = exprTypmod(targetNode);
+	Oid atttype = exprType((Node *) targetEntry->expr);
+	int32 atttypemod = exprTypmod((Node *) targetEntry->expr);
 
 	/* I have no idea when to set varlevelsup... */
-	Var *result = makeVar(INNER_VAR, target, atttype, atttypemod, 0, 0);
+	Var *result = makeVar(kind, target, atttype, atttypemod, 0, 0);
 	return result;
 }
 
@@ -518,11 +521,10 @@ static Plan * createPlan(PlanNode *plan, List *rtables)
 	switch (plan->kind_case)
 	{
 		case PLAN_NODE__KIND_SSCAN:
-			result = (Plan *) createSeqScan(context, plan->sscan, &context->visibleTable);
+			result = (Plan *) createSeqScan(context, plan->sscan);
 			break;
 		case PLAN_NODE__KIND_JOIN:
-			/* TODO: pass a context here as well */
-			result = (Plan *) createJoin(plan->join, rtables);
+			result = (Plan *) createJoin(context, plan->join);
 			break;
 		default:
 			ereport(ERROR, (errmsg("this plan kind is not supported yet")));
@@ -546,32 +548,29 @@ static Plan * createPlan(PlanNode *plan, List *rtables)
 	return result;
 }
 
-static Join * createJoin(JoinNode *join, List *rtables)
+static Join * createJoin(Context *context, JoinNode *join)
 {
 	Join *result;
 	Plan *resultPlan;
 	Expr *joinqual;
-	Context *context = makeContext();
 
 	switch (join->kind)
 	{
 		case JOIN_NODE__KIND__NESTED:
-			result = (Join *) createNestedLoop(join, rtables);
+			result = (Join *) createNestedLoop(join, context->rtables);
 			break;
 		default:
 			ereport(ERROR, (errmsg("only nestedloop joins are supported")));
 	}
 
 	resultPlan = &result->plan;
-	resultPlan->lefttree = createPlan(join->left, rtables);
-	resultPlan->righttree = createPlan(join->right, rtables);
+	resultPlan->lefttree = createPlan(join->left, context->rtables);
+	resultPlan->righttree = createPlan(join->right, context->rtables);
 
-	context->visibleTable = 0;
-	context->rtables = rtables;
 	context->leftTargets = resultPlan->lefttree->targetlist;
 	context->rightTargets = resultPlan->righttree->targetlist;
 
-	/* what do we pass createExpression? which tables should be visible? */
+	/* which tables should be visible here? */
 	joinqual = createExpression(context, join->joinqual);
 	result->joinqual = list_make1(joinqual);
 
