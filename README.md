@@ -9,7 +9,8 @@ SELECT * FROM run_select('CgIIARIDCgFh');
 ```
 
 Where the parameter passed in to `run_select` is a protocol buffer, as described in
-`queries.proto`. There are lots of examples in example-messages, they look like this:
+`queries.proto`. You'll find many examples in the `example-messages` directory, they
+look like this:
 
 ```
 plan: {
@@ -34,9 +35,10 @@ Implemented
 -----------
 
 - sequence scans
-- very simple expressions
+- extremely simple expressions
 - where clauses
 - nested loop joins
+- sorting (order by)
 
 Requirements
 -------------

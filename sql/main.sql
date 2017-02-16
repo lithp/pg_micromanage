@@ -75,3 +75,14 @@ SELECT * FROM run_select(:'buf');
 -- SELECT a.a FROM a RIGHT NESTEDLOOP JOIN b ON (a.a = b.a);
 \set buf `cat example-messages/simple-right-nestedloop.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
 SELECT * FROM run_select(:'buf');
+
+-- SELECT a.a FROM a ORDER BY a DESC;
+INSERT INTO A VALUES (5);
+INSERT INTO A VALUES (11);
+INSERT INTO A VALUES (7);
+\set buf `cat example-messages/select-a-desc.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+SELECT * FROM run_select(:'buf');
+
+-- SELECT a.a FROM a ORDER BY a ASC;
+\set buf `cat example-messages/select-a-asc.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+SELECT * FROM run_select(:'buf');

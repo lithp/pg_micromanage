@@ -54,6 +54,8 @@ static PlannedStmt * scanTable(SelectQuery *query);
 static Plan * createPlan(PlanNode *plan, List *rtables);
 
 static Join * createJoin(Context *context, JoinNode *join);
+static Sort * createSort(Context *context, SortNode *sort);
+static void fixSortTypes(Sort *sort, SortNode *node);
 static SeqScan * createSeqScan(Context *context, SequenceScan *scan);
 
 static RangeTblEntry * createRangeTable(char *tableName);
@@ -510,6 +512,9 @@ static Plan * createPlan(PlanNode *plan, List *rtables)
 		case PLAN_NODE__KIND_JOIN:
 			result = (Plan *) createJoin(context, plan->join);
 			break;
+		case PLAN_NODE__KIND_SORT:
+			result = (Plan *) createSort(context, plan->sort);
+			break;
 		default:
 			ereport(ERROR, (errmsg("plan kind %d is not supported yet",
 							plan->kind_case)));
@@ -528,6 +533,16 @@ static Plan * createPlan(PlanNode *plan, List *rtables)
 	{
 		qualExpr = createQual(context, plan->qual);
 		result->qual = list_make1(qualExpr);
+	}
+
+	if (plan->kind_case == PLAN_NODE__KIND_SORT)
+	{
+		/*
+		 * sort nodes need to contain the list of targets to sort by. This
+		 * couldn't happen in createSort because we didn't know the types of the
+		 * targets yet
+		 */
+		fixSortTypes((Sort *) result, plan->sort);
 	}
 
 	return result;
@@ -605,6 +620,71 @@ static JoinType joinTypeMapping(JoinNode__Type protobufType)
 		default:
 			ereport(ERROR, (errmsg("unrecognized join type: %d", protobufType)));
 	}
+}
+
+static Sort * createSort(Context *context, SortNode *sort)
+{
+	Sort *node = makeNode(Sort);
+	Plan *plan = &node->plan;
+
+	plan->lefttree = createPlan(sort->subplan, context->rtables);
+	context->leftTargets = plan->lefttree->targetlist;
+
+	return node;
+}
+
+static void fixSortTypes(Sort *sort, SortNode *sortNode)
+{
+	Plan *plan = &sort->plan;
+
+	int targetCount = list_length(plan->targetlist);
+
+	if (sortNode->n_col == 0)
+	{
+		ereport(ERROR, (errmsg("sort node must sort by at least one target")));
+	}
+
+	sort->numCols = sortNode->n_col;
+	sort->sortColIdx = (AttrNumber *) palloc0(sizeof(AttrNumber) * (sort->numCols));
+	sort->sortOperators = (Oid *) palloc0(sizeof(Oid) * (sort->numCols));
+	sort->collations = (Oid *) palloc0(sizeof(Oid) * (sort->numCols));
+	sort->nullsFirst = (bool *) palloc0(sizeof(bool) * (sort->numCols));
+
+	for (int i = 0; i < sortNode->n_col; i++)
+	{
+		SortNode__SortCol *col = sortNode->col[i];
+		TargetEntry *entry;
+		Oid entryType;
+
+		char *opName;
+		Value *opString;
+
+
+		if (col->target == 0)
+		{
+			ereport(ERROR, (errmsg("sort node targets are 1-indexed")));
+		}
+
+		if (col->target > targetCount)
+		{
+			ereport(ERROR, (errmsg("sort node(%d): there are only %d targets",
+								   col->target, targetCount)));
+		}
+
+		entry = list_nth(plan->targetlist, col->target - 1);
+		entryType = exprType((Node *) entry->expr);
+
+		/* now, which operator do we look up to compare target entry with itself? */
+		opName = col->ascending ? "<" : ">";
+		opString = makeString(pstrdup(opName));
+
+		sort->sortColIdx[i] = col->target;
+		sort->sortOperators[i] = OpernameGetOprid(list_make1(opString),
+												  entryType, entryType);
+		sort->collations[i] = InvalidOid;
+		sort->nullsFirst[i] = false;
+	}
+
 }
 
 static Context * makeContext(void)

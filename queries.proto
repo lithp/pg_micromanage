@@ -19,6 +19,7 @@ message PlanNode {
     SequenceScan sscan = 3;
     JoinNode join = 4;
     Materialize materialize = 5;
+    SortNode sort = 6;
   }
 }
 
@@ -26,7 +27,7 @@ message SequenceScan {
   required uint32 table = 1;       // The index of the RangeTable to scan
 }
 
-/* run the subplan and store the results on disk, allowing for quick rescanning */
+/* saves rows from the subplan as they are requested, allowing for quick rescanning */
 message Materialize {
   required PlanNode plan = 1;
 }
@@ -56,6 +57,15 @@ message JoinNode {
 
   required PlanNode left = 4;   // the outer table
   required PlanNode right = 5;  // the inner table
+}
+
+message SortNode {
+  message SortCol {
+    required uint32 target = 1;
+    required bool ascending = 2;
+  }
+  repeated SortCol col = 1;
+  required PlanNode subplan = 2;
 }
 
 message Expression {
