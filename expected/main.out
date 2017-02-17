@@ -166,3 +166,37 @@ SELECT * FROM run_select(:'buf');
  5 |  2
 (5 rows)
 
+DROP TABLE a;
+DROP TABLE b;
+CREATE TABLE a (a int, b int);
+CREATE TABLE b (b int, c int);
+INSERT INTO a VALUES (1, 1);
+INSERT INTO a VALUES (1, 2);
+INSERT INTO b VALUES (2, 1);
+INSERT INTO b VALUES (2, 3);
+INSERT INTO b VALUES (3, 1);
+SELECT a.a, a.b FROM a JOIN b ON (a.b = b.b);
+ a | b 
+---+---
+ 1 | 2
+ 1 | 2
+(2 rows)
+
+-- SELECT a.a, a.b FROM a INNER NESTEDLOOP JOIN b ON (a.b = b.b);
+\set buf `cat example-messages/inner-nestedloop-multiple-col.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+SELECT * FROM run_select(:'buf');
+ a | a 
+---+---
+ 1 | 2
+ 1 | 2
+(2 rows)
+
+-- SELECT a.b, a.a FROM a INNER NESTEDLOOP JOIN b ON (a.b = b.b);
+\set buf `cat example-messages/inner-nestedloop-multiple-col-reversed.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+SELECT * FROM run_select(:'buf');
+ a | a 
+---+---
+ 2 | 1
+ 2 | 1
+(2 rows)
+

@@ -98,3 +98,23 @@ INSERT INTO a VALUES (3, 1);
 -- SELECT a.a FROM a ORDER BY a ASC, b DESC;
 \set buf `cat example-messages/select-a-asc-b-desc.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
 SELECT * FROM run_select(:'buf');
+
+DROP TABLE a;
+DROP TABLE b;
+CREATE TABLE a (a int, b int);
+CREATE TABLE b (b int, c int);
+INSERT INTO a VALUES (1, 1);
+INSERT INTO a VALUES (1, 2);
+INSERT INTO b VALUES (2, 1);
+INSERT INTO b VALUES (2, 3);
+INSERT INTO b VALUES (3, 1);
+
+SELECT a.a, a.b FROM a JOIN b ON (a.b = b.b);
+
+-- SELECT a.a, a.b FROM a INNER NESTEDLOOP JOIN b ON (a.b = b.b);
+\set buf `cat example-messages/inner-nestedloop-multiple-col.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+SELECT * FROM run_select(:'buf');
+
+-- SELECT a.b, a.a FROM a INNER NESTEDLOOP JOIN b ON (a.b = b.b);
+\set buf `cat example-messages/inner-nestedloop-multiple-col-reversed.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+SELECT * FROM run_select(:'buf');
