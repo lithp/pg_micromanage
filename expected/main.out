@@ -200,3 +200,7 @@ SELECT * FROM run_select(:'buf');
  2 | 1
 (2 rows)
 
+-- SELECT a.a, XXX, a.b FROM a INNER NESTEDLOOP JOIN b ON (a.b = b.b);
+\set buf `cat example-messages/inner-nestedloop-multiple-col-noexist.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+SELECT * FROM run_select(:'buf');
+ERROR:  LeftRef(3), there are only 2 targets

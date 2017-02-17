@@ -118,3 +118,7 @@ SELECT * FROM run_select(:'buf');
 -- SELECT a.b, a.a FROM a INNER NESTEDLOOP JOIN b ON (a.b = b.b);
 \set buf `cat example-messages/inner-nestedloop-multiple-col-reversed.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
 SELECT * FROM run_select(:'buf');
+
+-- SELECT a.a, XXX, a.b FROM a INNER NESTEDLOOP JOIN b ON (a.b = b.b);
+\set buf `cat example-messages/inner-nestedloop-multiple-col-noexist.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
+SELECT * FROM run_select(:'buf');
