@@ -64,6 +64,7 @@ message SortNode {
     required uint32 target = 1;
     required bool ascending = 2;
   }
+  /* These cols reference the containing plan's target entries, not the subplan's */
   repeated SortCol col = 1;
   required PlanNode subplan = 2;
 }

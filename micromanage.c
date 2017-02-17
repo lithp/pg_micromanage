@@ -637,7 +637,8 @@ static void fixSortTypes(Sort *sort, SortNode *sortNode)
 {
 	Plan *plan = &sort->plan;
 
-	int targetCount = list_length(plan->targetlist);
+	List *targetList = plan->targetlist;
+	int targetCount = list_length(targetList);
 
 	if (sortNode->n_col == 0)
 	{
@@ -671,7 +672,7 @@ static void fixSortTypes(Sort *sort, SortNode *sortNode)
 								   col->target, targetCount)));
 		}
 
-		entry = list_nth(plan->targetlist, col->target - 1);
+		entry = list_nth(targetList, col->target - 1);
 		entryType = exprType((Node *) entry->expr);
 
 		/* now, which operator do we look up to compare target entry with itself? */
