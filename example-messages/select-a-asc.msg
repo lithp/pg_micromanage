@@ -15,11 +15,6 @@ plan: {
       ascending: true
     }
   }
-  target: {
-    leftRef: {
-      target: 1
-    }
-  }
 }
 rtable: {
   name: "a"

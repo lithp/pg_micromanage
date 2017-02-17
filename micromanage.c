@@ -56,6 +56,7 @@ static Plan * createPlan(PlanNode *plan, List *rtables);
 static Join * createJoin(Context *context, JoinNode *join);
 static Sort * createSort(Context *context, SortNode *sort);
 static void fixSortTypes(Sort *sort, SortNode *node);
+static void setSortTargets(Sort *sort);
 static SeqScan * createSeqScan(Context *context, SequenceScan *scan);
 
 static RangeTblEntry * createRangeTable(char *tableName);
@@ -70,7 +71,7 @@ static Const * createConst(Expression__Constant *constant);
 
 static NestLoop * createNestedLoop(JoinNode *join, List *rtables);
 
-static Var * createSubPlanRef(int kind, List *targets, uint32_t target);
+static Var * createSubPlanRef(int kind, TargetEntry *targetEntry, uint32 target);
 static Oid rangeTableId(List *rtables, Index index);
 static JoinType joinTypeMapping(JoinNode__Type protobufType);
 static char * get_typname(Oid typid);
@@ -399,6 +400,7 @@ static Var * createVar(Context *context, Expression__ColumnRef *ref)
 static Var * createLeftRef(Context *context, Expression__LeftRef *ref)
 {
 	int targetCount = list_length(context->leftTargets);
+	TargetEntry *entry;
 
 	if (context->leftTargets == NULL)
 	{
@@ -416,12 +418,15 @@ static Var * createLeftRef(Context *context, Expression__LeftRef *ref)
 						ref->target, targetCount)));
 	}
 
-	return createSubPlanRef(OUTER_VAR, context->leftTargets, ref->target);
+	entry = list_nth(context->leftTargets, ref->target - 1);
+	Assert(IsA(entry, TargetEntry));
+	return createSubPlanRef(OUTER_VAR, entry, ref->target);
 }
 
 static Var * createRightRef(Context *context, Expression__RightRef *ref)
 {
 	int targetCount = list_length(context->rightTargets);
+	TargetEntry *entry;
 
 	if (context->rightTargets == NULL)
 	{
@@ -439,15 +444,13 @@ static Var * createRightRef(Context *context, Expression__RightRef *ref)
 						ref->target, targetCount)));
 	}
 
-	return createSubPlanRef(INNER_VAR, context->rightTargets, ref->target);
+	entry = list_nth(context->rightTargets, ref->target - 1);
+	Assert(IsA(entry, TargetEntry));
+	return createSubPlanRef(INNER_VAR, entry, ref->target);
 }
 
-/* caller is responsible for ensuring the list is long enough */
-static Var * createSubPlanRef(int kind, List *targets, uint32_t target)
+static Var * createSubPlanRef(int kind, TargetEntry *targetEntry, uint32 target)
 {
-	TargetEntry *targetEntry = list_nth(targets, target - 1);
-	//Assert(IsA(targetEntry, TargetEntry));
-
 	/* exprCollation() also exists */
 	Oid atttype = exprType((Node *) targetEntry->expr);
 	int32 atttypemod = exprTypmod((Node *) targetEntry->expr);
@@ -499,9 +502,17 @@ static Plan * createPlan(PlanNode *plan, List *rtables)
 
 	context->rtables = rtables;
 
-	if (plan->n_target == 0)
+	/* TODO: maybe move this error checking into the create* funcs */
+	if (plan->kind_case != PLAN_NODE__KIND_SORT && plan->n_target == 0)
 	{
-		ereport(ERROR, (errmsg("plans must project at least one column")));
+		ereport(ERROR, (errmsg("plans (except sorts) must project at least one column")));
+	}
+
+	if (plan->kind_case == PLAN_NODE__KIND_SORT && plan->n_target != 0)
+	{
+		ereport(ERROR, (errmsg("sort nodes do not support projection"),
+						errdetail("they pass through the targetlist unchanged"),
+						errhint("don't specify any targets for sort")));
 	}
 
 	switch (plan->kind_case)
@@ -529,6 +540,11 @@ static Plan * createPlan(PlanNode *plan, List *rtables)
 	}
 	result->targetlist = targetList;
 
+	if (plan->kind_case == PLAN_NODE__KIND_SORT && plan->qual != NULL)
+	{
+		ereport(ERROR, (errmsg("sort plans don't support quals")));
+	}
+
 	if (plan->qual != NULL)
 	{
 		qualExpr = createQual(context, plan->qual);
@@ -543,6 +559,7 @@ static Plan * createPlan(PlanNode *plan, List *rtables)
 		 * targets yet
 		 */
 		fixSortTypes((Sort *) result, plan->sort);
+		setSortTargets((Sort *) result);
 	}
 
 	return result;
@@ -633,11 +650,33 @@ static Sort * createSort(Context *context, SortNode *sort)
 	return node;
 }
 
+/*
+ * sort does not support projection, it returns the same targets it receives
+ * pg9.6.1:nodes/relation.h:1299
+ */
+static void setSortTargets(Sort *sort)
+{
+	Plan *plan = &sort->plan;
+	ListCell *cell;
+
+	Assert(plan->targetlist == NIL);
+
+	foreach(cell, plan->lefttree->targetlist)
+	{
+		TargetEntry *subEntry = (TargetEntry *) lfirst(cell);
+		Var *var = createSubPlanRef(OUTER_VAR, subEntry, subEntry->resno);
+		TargetEntry *newEntry = makeTargetEntry((Expr *) var, subEntry->resno,
+												subEntry->resname, false);
+		plan->targetlist = lappend(plan->targetlist, newEntry);
+	}
+}
+
+
 static void fixSortTypes(Sort *sort, SortNode *sortNode)
 {
 	Plan *plan = &sort->plan;
 
-	List *targetList = plan->targetlist;
+	List *targetList = plan->lefttree->targetlist;
 	int targetCount = list_length(targetList);
 
 	if (sortNode->n_col == 0)

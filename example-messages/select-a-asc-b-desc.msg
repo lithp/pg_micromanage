@@ -1,4 +1,4 @@
-# SELECT a, d FROM a ORDER BY a ASC, b DESC;
+# SELECT a, b FROM a ORDER BY a ASC, b DESC;
 plan: {
   sort: {
     subplan: {
@@ -9,7 +9,5 @@ plan: {
     col: { target: 1 ascending: true }
     col: { target: 2 ascending: false }
   }
-  target: { leftRef: { target: 1 } }
-  target: { leftRef: { target: 2 } }
 }
 rtable: { name: "a" }

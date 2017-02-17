@@ -95,7 +95,7 @@ INSERT INTO a VALUES (5, 2);
 INSERT INTO a VALUES (5, 9);
 INSERT INTO a VALUES (3, 1);
 
--- SELECT a.a FROM a ORDER BY a ASC, b DESC;
+-- SELECT a.a, a.b FROM a ORDER BY a ASC, b DESC;
 \set buf `cat example-messages/select-a-asc-b-desc.msg | protoc queries.proto --encode=SelectQuery | base64 -w0`
 SELECT * FROM run_select(:'buf');
 
