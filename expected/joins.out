@@ -2,6 +2,26 @@
 SELECT * FROM run_select('');
 ERROR:  must be run like: SELECT * FROM run_select() in a top level
 CREATE TABLE a (a int);
+-- refs should fail gracefully
+SELECT encode_protobuf($$
+plan: {
+  sscan: { table: 1 }
+  target: { rightRef: { target: 1 } }
+}
+rtable: { name: "a" }
+$$) AS buf \gset
+SELECT * FROM run_select(:'buf');
+ERROR:  cannot create RightRef, there is no right subplan
+SELECT encode_protobuf($$
+plan: {
+  sscan: { table: 1 }
+  target: { leftRef: { target: 1 } }
+}
+rtable: { name: "a" } 
+$$) AS buf \gset
+SELECT * FROM run_select(:'buf');
+ERROR:  cannot create LeftRef, there is no left subplan
+-- now for the actual tests
 INSERT INTO a VALUES (1);
 INSERT INTO a VALUES (10);
 CREATE TABLE b (a int);

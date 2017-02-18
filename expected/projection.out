@@ -1,4 +1,13 @@
 CREATE EXTENSION micromanage;
+-- no range table -> error!
+SELECT encode_protobuf($$
+plan: {
+  sscan: { table: 1 }
+  target: { var: { table: 1 column: "a" } }
+}
+$$) AS buf \gset
+SELECT * FROM run_select(:'buf');
+ERROR:  must include at least one range table
 -- SELECT a FROM a;
 SELECT encode_protobuf($$
 plan: {
@@ -202,25 +211,75 @@ $$) AS buf \gset
 SELECT * FROM run_select(:'buf');
 ERROR:  could not find operator named "="
 DETAIL:  arg types: "int4" and "bool"
--- simple ref failures
+CREATE TABLE b (a int);
+-- adding unused range tables is okay
 SELECT encode_protobuf($$
 plan: {
   sscan: { table: 1 }
-  target: { rightRef: { target: 1 } }
+  target: { var: { table: 1 column: "a" } }
 }
 rtable: { name: "a" }
+rtable: { name: "b" }
 $$) AS buf \gset
 SELECT * FROM run_select(:'buf');
-ERROR:  cannot create RightRef, there is no right subplan
+ a  
+----
+  1
+ 10
+(2 rows)
+
+-- SELECT a.a, b.a + 10 FROM a
 SELECT encode_protobuf($$
 plan: {
   sscan: { table: 1 }
-  target: { leftRef: { target: 1 } }
+  target: { var: { table: 1 column: "a" } }
+  target: {
+    op: {
+      name: "+"
+      arg: { var: { table: 2 column: "a" } }
+      arg: { const: { uint: 10 } }
+    }
+  }
+  qual: {
+    op: {
+      name: "="
+      arg: { var: { table: 1 column: "a" } }
+      arg: { const: { uint: 10 } }
+    }
+  }
 }
-rtable: { name: "a" } 
+rtable: { name: "a" }
+rtable: { name: "b" }
 $$) AS buf \gset
 SELECT * FROM run_select(:'buf');
-ERROR:  cannot create LeftRef, there is no left subplan
+WARNING:  cant select from table 2, using table 1 instead
+ a  | a  
+----+----
+ 10 | 20
+(1 row)
+
+-- SELECT a.a FROM a WHERE b.a = 10
+SELECT encode_protobuf($$
+plan: {
+  sscan: { table: 1 }
+  target: { var: { table: 1 column: "a" } }
+  qual: {
+    op: {
+      name: "="
+      arg: { var: { table: 2 column: "a" } }
+      arg: { const: { uint: 10 } }
+    }
+  }
+}
+rtable: { name: "a" }
+rtable: { name: "b" }
+$$) AS buf \gset
+SELECT * FROM run_select(:'buf');
+WARNING:  cant select from table 2, using table 1 instead
+ a  
+----
+ 10
+(1 row)
+
 DROP TABLE a;
 DROP TABLE b;
-ERROR:  table "b" does not exist

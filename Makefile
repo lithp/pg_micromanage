@@ -11,7 +11,7 @@ endif
 
 SHLIB_LINK += -lprotobuf-c
 
-REGRESS=main sorting joins
+REGRESS=projection sorting joins
 
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)

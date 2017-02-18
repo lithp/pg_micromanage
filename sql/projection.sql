@@ -1,5 +1,15 @@
 CREATE EXTENSION micromanage;
 
+-- no range table -> error!
+SELECT encode_protobuf($$
+plan: {
+  sscan: { table: 1 }
+  target: { var: { table: 1 column: "a" } }
+}
+$$) AS buf \gset
+SELECT * FROM run_select(:'buf');
+
+
 -- SELECT a FROM a;
 SELECT encode_protobuf($$
 plan: {
@@ -180,25 +190,61 @@ rtable: { name: "a" }
 $$) AS buf \gset
 SELECT * FROM run_select(:'buf');
 
--- simple ref failures
+CREATE TABLE b (a int);
 
+-- adding unused range tables is okay
 SELECT encode_protobuf($$
 plan: {
   sscan: { table: 1 }
-  target: { rightRef: { target: 1 } }
+  target: { var: { table: 1 column: "a" } }
 }
 rtable: { name: "a" }
+rtable: { name: "b" }
 $$) AS buf \gset
 SELECT * FROM run_select(:'buf');
 
-
+-- SELECT a.a, b.a + 10 FROM a
 SELECT encode_protobuf($$
 plan: {
   sscan: { table: 1 }
-  target: { leftRef: { target: 1 } }
+  target: { var: { table: 1 column: "a" } }
+  target: {
+    op: {
+      name: "+"
+      arg: { var: { table: 2 column: "a" } }
+      arg: { const: { uint: 10 } }
+    }
+  }
+  qual: {
+    op: {
+      name: "="
+      arg: { var: { table: 1 column: "a" } }
+      arg: { const: { uint: 10 } }
+    }
+  }
 }
-rtable: { name: "a" } 
+rtable: { name: "a" }
+rtable: { name: "b" }
+$$) AS buf \gset
+SELECT * FROM run_select(:'buf');
+
+-- SELECT a.a FROM a WHERE b.a = 10
+SELECT encode_protobuf($$
+plan: {
+  sscan: { table: 1 }
+  target: { var: { table: 1 column: "a" } }
+  qual: {
+    op: {
+      name: "="
+      arg: { var: { table: 2 column: "a" } }
+      arg: { const: { uint: 10 } }
+    }
+  }
+}
+rtable: { name: "a" }
+rtable: { name: "b" }
 $$) AS buf \gset
 SELECT * FROM run_select(:'buf');
 
 DROP TABLE a;
+DROP TABLE b;

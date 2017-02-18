@@ -2,6 +2,29 @@
 SELECT * FROM run_select('');
 
 CREATE TABLE a (a int);
+-- refs should fail gracefully
+
+SELECT encode_protobuf($$
+plan: {
+  sscan: { table: 1 }
+  target: { rightRef: { target: 1 } }
+}
+rtable: { name: "a" }
+$$) AS buf \gset
+SELECT * FROM run_select(:'buf');
+
+
+SELECT encode_protobuf($$
+plan: {
+  sscan: { table: 1 }
+  target: { leftRef: { target: 1 } }
+}
+rtable: { name: "a" } 
+$$) AS buf \gset
+SELECT * FROM run_select(:'buf');
+
+-- now for the actual tests
+
 INSERT INTO a VALUES (1);
 INSERT INTO a VALUES (10);
 
