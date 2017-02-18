@@ -3,7 +3,7 @@ EXTENSION = micromanage
 MODULE_big = micromanage
 OBJS = micromanage.o queries.pb-c.o
 
-DATA = micromanage--0.0.1.sql
+DATA = micromanage--0.0.1.sql queries.proto
 
 ifndef PG_CONFIG
 PG_CONFIG = pg_config
@@ -11,7 +11,7 @@ endif
 
 SHLIB_LINK += -lprotobuf-c
 
-REGRESS=main
+REGRESS=main sorting joins
 
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)

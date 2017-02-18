@@ -18,6 +18,8 @@
 #include "nodes/print.h"
 #include "optimizer/planner.h"
 #include "parser/parse_func.h"
+#include "port.h"
+#include "storage/fd.h"
 #include "tcop/dest.h"
 #include "tcop/tcopprot.h"
 #include "tcop/pquery.h"
@@ -27,6 +29,8 @@
 #include "utils/portal.h"
 
 #include "queries.pb-c.h"
+
+#include <unistd.h>
 
 
 #ifdef PG_MODULE_MAGIC
@@ -76,6 +80,8 @@ static Oid rangeTableId(List *rtables, Index index);
 static JoinType joinTypeMapping(JoinNode__Type protobufType);
 static char * get_typname(Oid typid);
 static Context * makeContext(void);
+
+static char * readFileUntilEnd(FILE *file);
 
 void _PG_init(void)
 {
@@ -799,4 +805,112 @@ PG_FUNCTION_INFO_V1(run_select);
 Datum run_select(PG_FUNCTION_ARGS)
 {
 	ereport(ERROR, (errmsg("must be run like: SELECT * FROM run_select() in a top level")));
+}
+
+static char *
+readFileUntilEnd(FILE *file)
+{
+	StringInfo buffer = makeStringInfo();
+
+	while (true)
+	{
+		char buf[512];
+		ssize_t bytesread = fread(buf, 1, 512, file);
+
+		if (ferror(file))
+			ereport(ERROR, (errmsg("reading from the file failed")));
+
+		appendBinaryStringInfo(buffer, buf, bytesread);
+
+		if (feof(file))
+			break;
+	}
+
+	return buffer->data;
+}
+
+static char *
+writeTempFile(char *contents)
+{
+	FILE *file;
+
+	char filename[19] = "/tmp/buffer.XXXXXX";
+	int fd = mkstemp(filename);
+	if (fd == -1)
+	{
+		ereport(ERROR, (errmsg("failed to open temporary file")));
+	}
+
+	file = fdopen(fd, "w");
+	if (!file)
+	{
+		close(fd);
+		unlink(filename);
+		ereport(ERROR, (errmsg("failed to open stream for temporary file")));
+	}
+
+	fprintf(file, "%s", contents);
+	if (ferror(file))
+	{
+		fclose(file);
+		unlink(filename);
+		ereport(ERROR, (errmsg("failed to write temporary file")));
+	}
+
+	fclose(file);
+
+	return pstrdup(filename);
+}
+
+static char *
+share_path(void)
+{
+	char sharepath[MAXPGPATH];
+	char *result;
+
+	get_share_path(my_exec_path, sharepath);
+	result = (char *) palloc(MAXPGPATH);
+	snprintf(result, MAXPGPATH, "%s/extension", sharepath);
+
+	return result;
+}
+
+PG_FUNCTION_INFO_V1(encode_protobuf);
+Datum encode_protobuf(PG_FUNCTION_ARGS)
+{
+	text *result;
+
+	text *t = PG_GETARG_TEXT_P(0);
+	char *protoString = text_to_cstring(t);
+
+	int res;
+	char *encodedProto;
+
+	char *tempfile = writeTempFile(protoString);
+	char *sharePath = share_path();
+
+	char *format = "cat %s | protoc -I%s %s/queries.proto --encode=SelectQuery | base64 -w0";
+	char *cmd = psprintf(format, tempfile, sharePath, sharePath);
+
+	FILE *encodedProtoPipe = OpenPipeStream(cmd, PG_BINARY_R);
+	if (encodedProtoPipe == NULL)
+	{
+		ereport(ERROR, (errmsg("failed to run command")));
+	}
+
+	encodedProto = readFileUntilEnd(encodedProtoPipe);
+
+	res = ClosePipeStream(encodedProtoPipe);
+	if (res == -1)
+	{
+		ereport(ERROR, (errmsg("failed to close pipe")));
+	}
+	if (res != 0)
+	{
+		ereport(ERROR, (errmsg("program failed"),
+						errdetail_internal("%s", wait_result_to_str(res))));
+	}
+
+	result = cstring_to_text(pstrdup(encodedProto));
+	PG_RETURN_TEXT_P(result);
 }
