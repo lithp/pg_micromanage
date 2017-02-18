@@ -895,6 +895,7 @@ Datum encode_protobuf(PG_FUNCTION_ARGS)
 	FILE *encodedProtoPipe = OpenPipeStream(cmd, PG_BINARY_R);
 	if (encodedProtoPipe == NULL)
 	{
+		unlink(tempfile);
 		ereport(ERROR, (errmsg("failed to run command")));
 	}
 
@@ -903,14 +904,17 @@ Datum encode_protobuf(PG_FUNCTION_ARGS)
 	res = ClosePipeStream(encodedProtoPipe);
 	if (res == -1)
 	{
+		unlink(tempfile);
 		ereport(ERROR, (errmsg("failed to close pipe")));
 	}
 	if (res != 0)
 	{
+		unlink(tempfile);
 		ereport(ERROR, (errmsg("program failed"),
 						errdetail_internal("%s", wait_result_to_str(res))));
 	}
 
+	unlink(tempfile);
 	result = cstring_to_text(pstrdup(encodedProto));
 	PG_RETURN_TEXT_P(result);
 }
