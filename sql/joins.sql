@@ -2,6 +2,7 @@
 SELECT * FROM run_select('');
 
 CREATE TABLE a (a int);
+
 -- refs should fail gracefully
 
 SELECT encode_protobuf($$
