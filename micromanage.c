@@ -53,7 +53,7 @@ PlannedStmt * skip_planner(Query *, int, ParamListInfo);
 static PlannedStmt * planForFunc(FuncExpr *funcexpr);
 static SelectQuery * decodeQuery(char *string);
 
-static PlannedStmt * scanTable(SelectQuery *query);
+static PlannedStmt * planForProtobuf(SelectQuery *query);
 
 static Plan * createPlan(PlanNode *plan, List *rtables);
 
@@ -159,7 +159,7 @@ PlannedStmt * planForFunc(FuncExpr *funcexpr)
 	protobufString = TextDatumGetCString(arg->constvalue);
 	protobuf = decodeQuery(protobufString);
 
-	return scanTable(protobuf);
+	return planForProtobuf(protobuf);
 }
 
 static SelectQuery * decodeQuery(char *string)
@@ -191,7 +191,7 @@ static SelectQuery * decodeQuery(char *string)
 	return protobuf;
 }
 
-static PlannedStmt * scanTable(SelectQuery *query)
+static PlannedStmt * planForProtobuf(SelectQuery *query)
 {
 	Plan *plan;
 	List *rtables = NULL;
