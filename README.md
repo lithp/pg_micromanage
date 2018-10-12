@@ -3,29 +3,43 @@
 Usage
 -----
 
-```
-CREATE EXTENSION micromanage
-SELECT * FROM run_select('CgIIARIDCgFh');
+```psql
+# Some setup
+psql=# CREATE EXTENSION micromanage;
+CREATE EXTENSION
+psql=# CREATE TABLE a (a int);
+CREATE TABLE
+psql=# INSERT INTO a VALUES (1);
+INSERT 0 1
+
+# Create the protobuf
+psql=# SELECT encode_protobuf($$
+psql$# plan: {
+psql$#   sscan: { table: 1 }
+psql$#   target: { var: { table: 1 column: "a" } }
+psql$# }
+psql$# rtable: { name: "a" }
+psql$# $$) AS buf \gset
+
+# Run the query!
+psql=# SELECT * FROM run_select(:'buf');
+ a 
+---
+ 1
+(1 row)
+
+# You can also generate protobufs yourself and use them directly:
+psql=# SELECT * FROM run_select('Cg0KBwoFCAESAWEaAggBEgMKAWE=');
+ a 
+---
+ 1
+(1 row)
 ```
 
-Where the parameter passed in to `run_select` is a protocol buffer, as described in
-`queries.proto`. You'll find many examples in the `example-messages` directory, they
-look like this:
+Queries are described in `queries.proto`. You'll find many examples in the tests, which
+are in the `sql` directory. You can see the results of running the commands found in `sql` in the `expected` directory.
 
-```
-plan: {
-  sscan: { table: 1 }
-  target: {
-    var: {
-      table: 1
-      column: "a"
-    }
-  }
-}
-rtable: { name: "a" }
-```
-
-To turn it into something run_select will accept, run a command like this:
+If you want to make your own protobufs do something like this:
 
 ```
 cat example.msg | protoc queries.proto --encode=SelectQuery | base64
@@ -45,6 +59,7 @@ Requirements
 
 - `protobuf-c` and `protoc`. I think they're the `protobuf-c-dev` and `protobuf-compiler`
   packages on Ubuntu.
+- Postgres 9.6
 
 Building
 --------
